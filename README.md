@@ -1,2 +1,2 @@
 # OneMini-CLI
-OneMini系产品 CLI版本
+OneMini系产品 CLI
