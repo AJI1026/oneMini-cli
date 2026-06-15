@@ -2,3 +2,4 @@
 .env
 *.swp
 .DS_Store
+release/signing_secret_key.b64

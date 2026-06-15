@@ -193,7 +193,12 @@ onemini update --version 0.1.1
 
 # 强制重装当前 latest（修复损坏安装）
 onemini update --force
+
+# 安装已标记为 deprecated 的旧版本（默认拒绝）
+onemini update --version 0.1.0 --ignore-deprecated
 ```
+
+更新流程会先校验 `release/versions.json` 的 Ed25519 签名，再下载对应 `.tar.gz` 及其 `.sig`；**仅 SHA256 不足以保证安全**（见下方安全设计）。
 
 也可重新运行安装脚本（等价于更新到 latest）：
 
@@ -217,6 +222,17 @@ git push origin v0.1.1
 ```
 
 用户侧执行 `onemini update` 即可自动从 `v0.1.0` 升到 `v0.1.1`（semver 比较：`0.1.1 > 0.1.0`）。
+
+#### Release 安全设计
+
+| 措施 | 说明 |
+|------|------|
+| HTTPS only | 所有下载 URL 必须为 `https://`；客户端强制 TLS 1.2+，禁止 HTTP 回退 |
+| Ed25519 签名 | 每个 Release 产物附带 `.sig`；CLI 内置公钥（`release/signing_public_key.b64`），下载后自动验签，失败则拒绝安装 |
+| 索引防篡改 | `release/versions.json` 由维护者签名（`versions.json.sig`）；CLI 先验索引再使用其中的 URL |
+| 弃用策略 | 在 `versions.json` 中标记 `"deprecated": true`；CLI 默认拦截，需 `--ignore-deprecated` 才允许安装 |
+
+维护者首次发布前，请阅读 [`release/README.md`](release/README.md) 配置 `ONEMINI_SIGNING_KEY` GitHub Secret。
 
 ---
 

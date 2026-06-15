@@ -80,17 +80,48 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      - name: Sign artifacts and versions.json
+        env:
+          ONEMINI_SIGNING_KEY: ${{ secrets.ONEMINI_SIGNING_KEY }}
+        run: |
+          chmod +x scripts/sign-release.sh
+          if [[ -z "${ONEMINI_SIGNING_KEY}" ]]; then
+            echo "::error::ONEMINI_SIGNING_KEY secret is required for signed releases"
+            exit 1
+          fi
+          ./scripts/sign-release.sh dist "${{ github.ref_name }}"
 
       - name: Generate SHA256SUMS
         run: |
           cd dist
           sha256sum *.tar.gz *.zip 2>/dev/null | sort > SHA256SUMS
 
+      - name: Copy signed index to dist
+        run: |
+          cp release/versions.json dist/versions.json
+          cp release/versions.json.sig dist/versions.json.sig
+
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: dist/*
+          files: |
+            dist/*
+            release/versions.json
+            release/versions.json.sig
+
+      - name: Commit signed versions.json to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release/versions.json release/versions.json.sig
+          git diff --staged --quiet || git commit -m "chore(release): update signed versions.json for ${{ github.ref_name }}"
+          git push origin HEAD:main

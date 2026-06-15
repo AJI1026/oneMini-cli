@@ -125,7 +125,8 @@ pub enum Commands {
   onemini update --check\n  \
   onemini update\n  \
   onemini update --version 0.1.1\n  \
-  onemini update --force"
+  onemini update --force\n  \
+  onemini update --ignore-deprecated   允许安装已弃用版本"
     )]
     Update {
         /// 仅检查是否有新版本，不下载安装
@@ -137,6 +138,9 @@ pub enum Commands {
         /// 即使版本相同也强制重新安装
         #[arg(long)]
         force: bool,
+        /// 允许下载 versions.json 中标记为 deprecated 的版本（默认拒绝）
+        #[arg(long)]
+        ignore_deprecated: bool,
     },
 }
 
@@ -270,11 +274,17 @@ impl Cli {
                 println!("{}", ui::success(&format!("配置已保存: {}", path.display())));
                 return Ok(());
             }
-            Some(Commands::Update { check, version, force }) => {
+            Some(Commands::Update {
+                check,
+                version,
+                force,
+                ignore_deprecated,
+            }) => {
                 return crate::update::run(crate::update::UpdateOptions {
                     check_only: check,
                     version,
                     force,
+                    ignore_deprecated,
                 })
                 .await;
             }

@@ -1,22 +1,20 @@
+mod index;
+mod security;
+
 use anyhow::{bail, Context, Result};
+use index::{asset_sig_url, normalize_version_key, VersionsIndex};
 use semver::Version;
-use serde::Deserialize;
+use security::{download_and_verify, secure_http_client, VERSIONS_INDEX_URL, VERSIONS_SIG_URL};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const REPO: &str = "AJI1026/OneMini-CLI";
 const BINARY: &str = "onemini";
-const USER_AGENT: &str = "onemini-cli-updater";
 
 pub struct UpdateOptions {
     pub check_only: bool,
     pub version: Option<String>,
     pub force: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct ReleaseInfo {
-    tag_name: String,
+    pub ignore_deprecated: bool,
 }
 
 pub fn current_version() -> &'static str {
@@ -24,24 +22,33 @@ pub fn current_version() -> &'static str {
 }
 
 pub async fn run(opts: UpdateOptions) -> Result<()> {
-    let client = reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .context("创建 HTTP 客户端失败")?;
+    let client = secure_http_client()?;
 
     let current = parse_version(current_version())?;
-    let tag = resolve_target_tag(&client, opts.version.as_deref()).await?;
-    let remote = parse_version(tag.trim_start_matches('v'))?;
+    let (version_key, release) = fetch_release_entry(&client, opts.version.as_deref()).await?;
+    let remote = parse_version(&version_key)?;
+    let tag = &release.tag;
 
     println!(
         "{}",
         crate::ui::status_pair("当前版本", &format!("v{current}"))
     );
-    println!(
-        "{}",
-        crate::ui::status_pair("目标版本", &tag)
-    );
+    println!("{}", crate::ui::status_pair("目标版本", tag));
+
+    if release.deprecated {
+        let reason = release
+            .deprecation_reason
+            .as_deref()
+            .unwrap_or("该版本存在已知安全问题");
+        let msg = format!("警告: {tag} 已标记为 deprecated — {reason}");
+        if opts.ignore_deprecated {
+            println!("{}", crate::ui::warn(&format!("{msg}（已使用 --ignore-deprecated 继续）")));
+        } else {
+            bail!(
+                "{msg}\n如需继续安装，请显式添加 --ignore-deprecated"
+            );
+        }
+    }
 
     if remote <= current && !opts.force {
         if remote == current {
@@ -69,6 +76,11 @@ pub async fn run(opts: UpdateOptions) -> Result<()> {
     let platform = detect_platform()?;
     println!("{}", crate::ui::dim(&format!("平台: {platform}")));
 
+    let asset = index::VersionsIndex::asset_for_platform(&release, &platform)?;
+    security::ensure_https_url(&asset.url)?;
+    let sig_url = asset_sig_url(asset);
+    security::ensure_https_url(&sig_url)?;
+
     let exe = std::env::current_exe().context("无法定位当前可执行文件")?;
     let install_dir = exe
         .parent()
@@ -80,11 +92,17 @@ pub async fn run(opts: UpdateOptions) -> Result<()> {
     let extract_dir = tmp.join("extract");
     std::fs::create_dir_all(&extract_dir)?;
 
-    let base = format!("https://github.com/{REPO}/releases/download/{tag}");
-    let archive_url = format!("{base}/{BINARY}-{platform}.tar.gz");
-
-    println!("{}", crate::ui::dim(&format!("下载: {archive_url}")));
-    download_file(&client, &archive_url, &archive).await?;
+    println!("{}", crate::ui::dim(&format!("下载: {}", asset.url)));
+    println!("{}", crate::ui::dim("校验 Ed25519 签名…"));
+    let archive_bytes = download_and_verify(
+        &client,
+        &asset.url,
+        &sig_url,
+        Some(&asset.sha256),
+    )
+    .await?;
+    std::fs::write(&archive, &archive_bytes)
+        .with_context(|| format!("写入失败: {}", archive.display()))?;
 
     extract_tar(&archive, &extract_dir)?;
     let new_bin = extract_dir.join(BINARY);
@@ -113,41 +131,17 @@ pub async fn run(opts: UpdateOptions) -> Result<()> {
     Ok(())
 }
 
-async fn resolve_target_tag(client: &reqwest::Client, version: Option<&str>) -> Result<String> {
-    if let Some(v) = version {
-        let tag = normalize_tag(v);
-        let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{tag}");
-        let resp = client
-            .get(&url)
-            .send()
-            .await
-            .with_context(|| format!("查询 release {tag} 失败"))?;
-        if !resp.status().is_success() {
-            bail!("GitHub 上不存在 release: {tag}");
-        }
-        let info: ReleaseInfo = resp.json().await.context("解析 release 信息失败")?;
-        return Ok(info.tag_name);
-    }
+async fn fetch_release_entry(
+    client: &reqwest::Client,
+    requested: Option<&str>,
+) -> Result<(String, index::ReleaseEntry)> {
+    println!("{}", crate::ui::dim("获取并校验版本索引…"));
+    let index_bytes =
+        download_and_verify(client, VERSIONS_INDEX_URL, VERSIONS_SIG_URL, None).await?;
+    let index = VersionsIndex::parse(&index_bytes)?;
 
-    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .context("查询 latest release 失败")?;
-    if !resp.status().is_success() {
-        bail!("无法获取 latest release（HTTP {}）", resp.status());
-    }
-    let info: ReleaseInfo = resp.json().await.context("解析 latest release 失败")?;
-    Ok(info.tag_name)
-}
-
-fn normalize_tag(v: &str) -> String {
-    if v.starts_with('v') {
-        v.to_string()
-    } else {
-        format!("v{v}")
-    }
+    let (version_key, entry) = index.resolve_version(requested)?;
+    Ok((version_key.to_string(), entry.clone()))
 }
 
 fn parse_version(s: &str) -> Result<Version> {
@@ -168,20 +162,6 @@ fn detect_platform() -> Result<String> {
         other => bail!("不支持架构: {other}"),
     };
     Ok(format!("{arch_tag}-{os_tag}"))
-}
-
-async fn download_file(client: &reqwest::Client, url: &str, dest: &Path) -> Result<()> {
-    let bytes = client
-        .get(url)
-        .send()
-        .await
-        .with_context(|| format!("下载失败: {url}"))?
-        .error_for_status()
-        .with_context(|| format!("下载失败: {url}"))?
-        .bytes()
-        .await?;
-    std::fs::write(dest, bytes).with_context(|| format!("写入失败: {}", dest.display()))?;
-    Ok(())
 }
 
 fn extract_tar(archive: &Path, dest: &Path) -> Result<()> {
@@ -248,15 +228,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn normalize_tag_adds_v() {
-        assert_eq!(normalize_tag("0.1.1"), "v0.1.1");
-        assert_eq!(normalize_tag("v0.1.1"), "v0.1.1");
-    }
-
-    #[test]
     fn semver_patch_bump() {
         let a = parse_version("0.1.0").unwrap();
         let b = parse_version("0.1.1").unwrap();
         assert!(b > a);
+    }
+
+    #[test]
+    fn normalize_version_key_works() {
+        assert_eq!(normalize_version_key("v0.1.1").unwrap(), "0.1.1");
+        assert_eq!(normalize_version_key("0.1.1").unwrap(), "0.1.1");
     }
 }
