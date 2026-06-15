@@ -117,6 +117,7 @@ Commands:
   resume    恢复上次会话
   config    配置管理
   init      初始化配置
+  update    检查并更新 CLI 版本
 ```
 
 ## 编译与打包
@@ -167,7 +168,48 @@ onemini --help
 curl -fsSL https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.sh | bash
 ```
 
-该脚本会自动检测平台，下载对应预编译二进制并安装到 `~/.cargo/bin/`。
+该脚本会自动检测平台，下载对应预编译二进制并安装到 `~/.local/bin/`（可通过 `ONEMINI_INSTALL_DIR` 自定义）。
+
+### 更新 CLI
+
+已安装用户可直接使用内置更新命令（从 GitHub Releases 拉取，**配置不会丢失**）：
+
+```bash
+# 检查是否有新版本
+onemini update --check
+
+# 更新到 latest release
+onemini update
+
+# 更新到指定小版本（0.1.x 补丁/小版本）
+onemini update --version 0.1.1
+
+# 强制重装当前 latest（修复损坏安装）
+onemini update --force
+```
+
+也可重新运行安装脚本（等价于更新到 latest）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.sh | bash
+```
+
+#### 维护者：发布 0.1.x 小版本
+
+在 **不改动主版本** 的前提下发布补丁（如 `0.1.0` → `0.1.1`）：
+
+```bash
+# 1. 修改 Cargo.toml 中的 version = "0.1.1"
+# 2. 提交并推送
+git commit -am "chore: bump version to 0.1.1"
+git push origin main
+
+# 3. 打 tag 并推送（CI 会自动构建 Release 产物）
+git tag -a v0.1.1 -m "v0.1.1: 修复 xxx"
+git push origin v0.1.1
+```
+
+用户侧执行 `onemini update` 即可自动从 `v0.1.0` 升到 `v0.1.1`（semver 比较：`0.1.1 > 0.1.0`）。
 
 ---
 

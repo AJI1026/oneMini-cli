@@ -12,6 +12,7 @@ mod session;
 mod slash;
 mod tools;
 mod ui;
+mod update;
 mod usage;
 mod subagent;
 

@@ -76,6 +76,18 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// 检查并更新到 GitHub Release 最新版
+    Update {
+        /// 仅检查是否有新版本，不下载安装
+        #[arg(long)]
+        check: bool,
+        /// 安装指定版本，如 0.1.1 或 v0.1.1
+        #[arg(long)]
+        version: Option<String>,
+        /// 即使版本相同也强制重新安装
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -192,6 +204,14 @@ impl Cli {
                 let path = Config::init_file(force)?;
                 println!("{}", ui::success(&format!("配置已保存: {}", path.display())));
                 return Ok(());
+            }
+            Some(Commands::Update { check, version, force }) => {
+                return crate::update::run(crate::update::UpdateOptions {
+                    check_only: check,
+                    version,
+                    force,
+                })
+                .await;
             }
             _ => {}
         }
