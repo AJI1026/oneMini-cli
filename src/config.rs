@@ -1,5 +1,4 @@
 use anyhow::{bail, Context, Result};
-use colored::Colorize;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -24,6 +23,12 @@ pub struct Config {
     pub model: Option<String>,
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
+    #[serde(default)]
+    pub show_reasoning: Option<bool>,
+    #[serde(default)]
+    pub auto_git_checkpoint: Option<bool>,
+    #[serde(default)]
+    pub mcp_servers: Vec<crate::mcp::McpServerConfig>,
     #[serde(skip)]
     pub workdir: Option<PathBuf>,
 }
@@ -36,6 +41,9 @@ impl Default for Config {
             model: Some("deepseek-chat".into()),
             temperature: Some(0.2),
             max_tokens: Some(8192),
+            show_reasoning: Some(true),
+            auto_git_checkpoint: Some(true),
+            mcp_servers: Vec::new(),
             workdir: None,
         }
     }
@@ -194,20 +202,37 @@ impl Config {
             .unwrap_or_else(|| Path::new("."))
     }
 
+    pub fn show_reasoning(&self) -> bool {
+        self.show_reasoning.unwrap_or(true)
+    }
+
+    pub fn auto_git_checkpoint(&self) -> bool {
+        self.auto_git_checkpoint.unwrap_or(true)
+    }
+
+    pub fn model_name(&self) -> &str {
+        self.model.as_deref().unwrap_or("deepseek-chat")
+    }
+
     pub fn display(&self) -> String {
         format!(
-            "配置文件: {}\n\
-             API Base: {}\n\
-             模型: {}\n\
-             API Key: {}\n\
-             工作目录: {}",
-            Self::config_path()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| "?".into()),
-            self.base_url.as_deref().unwrap_or("(未设置)"),
-            self.model.as_deref().unwrap_or("(未设置)"),
-            Self::mask_api_key(self.api_key.as_deref()),
-            self.workdir().display(),
+            "{}\n{}\n{}\n{}\n{}",
+            crate::ui::status_pair(
+                "配置文件",
+                &Self::config_path()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| "?".into()),
+            ),
+            crate::ui::status_pair(
+                "API Base",
+                self.base_url.as_deref().unwrap_or("(未设置)"),
+            ),
+            crate::ui::status_pair(
+                "模型",
+                self.model.as_deref().unwrap_or("(未设置)"),
+            ),
+            crate::ui::status_pair("API Key", Self::mask_api_key(self.api_key.as_deref())),
+            crate::ui::status_pair("工作目录", &self.workdir().display().to_string()),
         )
     }
 
@@ -221,7 +246,7 @@ impl Config {
     pub fn setup_hint() -> String {
         format!(
             "请运行 {} 在终端中配置 API Key 和 Base URL",
-            "onemini config setup".cyan()
+            crate::ui::hint("onemini config setup")
         )
     }
 }

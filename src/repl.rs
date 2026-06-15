@@ -2,20 +2,28 @@ use anyhow::Result;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
-use crate::agent::AgentSession;
 use crate::agent::AgentOptions;
+use crate::agent::AgentSession;
+use crate::slash::SlashRegistry;
 use crate::ui;
 
 pub struct Repl {
     editor: DefaultEditor,
     session: AgentSession,
+    slash: SlashRegistry,
 }
 
 impl Repl {
-    pub fn new(opts: AgentOptions) -> Result<Self> {
+    pub async fn new(opts: AgentOptions) -> Result<Self> {
         let editor = DefaultEditor::new()?;
-        let session = AgentSession::new(opts)?;
-        Ok(Self { editor, session })
+        let workdir = opts.config.workdir().to_path_buf();
+        let slash = SlashRegistry::load(&workdir)?;
+        let session = AgentSession::new(opts).await?;
+        Ok(Self {
+            editor,
+            session,
+            slash,
+        })
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -24,9 +32,14 @@ impl Repl {
             "{}",
             ui::dim(&format!(
                 "工作目录: {}",
-                self.session.opts.config.workdir().display()
+                self.session.workdir().display()
             ))
         );
+        println!(
+            "{}",
+            ui::dim("交互模式 · 流式输出 · 输入 /help 查看命令")
+        );
+        println!("{}", ui::separator());
         println!();
 
         loop {
@@ -72,13 +85,51 @@ impl Repl {
         match parts.first().copied() {
             Some("/exit") | Some("/quit") => return Ok(true),
             Some("/help") => {
+                let help = format!(
+                    "\n{}\n\
+                      /help     显示帮助\n\
+                      /plan     查看当前任务计划\n\
+                      /status   查看步骤、验证、Token 用量\n\
+                      /retry    重试最近失败步骤\n\
+                      /compact  压缩历史消息\n\
+                      /rollback 回滚到最近 git 检查点\n\
+                      /clear    清空对话历史\n\
+                      /config   显示配置\n\
+                      /exit     退出\n{}",
+                    ui::section_title("可用命令"),
+                    self.slash.format_help()
+                );
+                println!("{help}");
+            }
+            Some("/plan") => {
                 println!(
-                    "\n{}\n  /help   显示帮助\n  /clear  清空对话历史\n  /config 显示配置\n  /exit   退出\n",
-                    ui::dim("可用命令:")
+                    "\n{}",
+                    ui::render_plan_text(&self.session.task_state.format_plan())
                 );
             }
+            Some("/status") => {
+                println!("\n{}", self.session.format_status());
+            }
+            Some("/retry") => match self.session.retry_last_failure(true).await {
+                Ok(_) => println!(),
+                Err(e) => println!("{}\n", ui::error(&e.to_string())),
+            },
+            Some("/compact") => match self.session.compact_history().await {
+                Ok(()) => println!("{}", ui::success("历史消息已压缩")),
+                Err(e) => println!("{}", ui::error(&e.to_string())),
+            },
+            Some("/rollback") => match self.session.rollback_git() {
+                Ok(hash) => println!(
+                    "{}",
+                    ui::success(&format!(
+                        "已回滚到检查点 {}",
+                        &hash[..hash.len().min(8)]
+                    ))
+                ),
+                Err(e) => println!("{}", ui::error(&e.to_string())),
+            }
             Some("/clear") => {
-                let workdir = self.session.opts.config.workdir().to_path_buf();
+                let workdir = self.session.workdir().to_path_buf();
                 let opts = self.session.opts.clone();
                 self.session = AgentSession::new(AgentOptions {
                     config: {
@@ -88,14 +139,33 @@ impl Repl {
                     },
                     max_rounds: opts.max_rounds,
                     auto_approve: opts.auto_approve,
-                })?;
-                println!("{}", ui::success("对话历史已清空"));
+                    resume: false,
+                })
+                .await?;
+                self.session.clear_persisted()?;
+                println!("{}", ui::success("对话历史与任务状态已清空"));
             }
             Some("/config") => {
                 println!("{}", self.session.opts.config.display());
             }
             Some(cmd) => {
-                println!("{}", ui::warn(&format!("未知命令: {cmd}，输入 /help 查看帮助")));
+                let name = cmd.trim_start_matches('/');
+                if let Some(custom) = self.slash.resolve(name) {
+                    let mut prompt = custom.prompt.clone();
+                    if parts.len() > 1 {
+                        prompt.push(' ');
+                        prompt.push_str(&parts[1..].join(" "));
+                    }
+                    match self.session.run_turn(&prompt, true).await {
+                        Ok(_) => println!(),
+                        Err(e) => println!("{}\n", ui::error(&e.to_string())),
+                    }
+                } else {
+                    println!(
+                        "{}",
+                        ui::warn(&format!("未知命令: {cmd}，输入 /help 查看帮助"))
+                    );
+                }
             }
             None => {}
         }

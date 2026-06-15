@@ -1,10 +1,19 @@
 mod agent;
 mod cli;
+mod compress;
 mod config;
+mod git;
+mod hooks;
 mod llm;
+mod mcp;
+mod permissions;
 mod repl;
+mod session;
+mod slash;
 mod tools;
 mod ui;
+mod usage;
+mod subagent;
 
 use anyhow::Result;
 use clap::Parser;

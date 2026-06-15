@@ -16,6 +16,13 @@ pub struct OpenAiClient {
 #[derive(Debug, Deserialize)]
 struct StreamChunk {
     choices: Vec<StreamChoice>,
+    usage: Option<UsageInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatCompletionResponseWithUsage {
+    choices: Vec<Choice>,
+    usage: Option<UsageInfo>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -27,6 +34,8 @@ struct StreamChoice {
 #[derive(Debug, Default, Deserialize)]
 struct StreamDelta {
     content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
     tool_calls: Option<Vec<StreamToolCallDelta>>,
 }
 
@@ -75,7 +84,7 @@ impl OpenAiClient {
         &self,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<ToolDefinition>>,
-    ) -> Result<AssistantMessage> {
+    ) -> Result<(AssistantMessage, UsageInfo)> {
         let req = ChatRequest {
             model: self
                 .config
@@ -104,12 +113,15 @@ impl OpenAiClient {
             anyhow::bail!("LLM API 错误 {status}: {body}");
         }
 
-        let data: ChatCompletionResponse = resp.json().await.context("解析 LLM 响应失败")?;
-        data.choices
+        let data: ChatCompletionResponseWithUsage =
+            resp.json().await.context("解析 LLM 响应失败")?;
+        let msg = data
+            .choices
             .into_iter()
             .next()
             .map(|c| c.message)
-            .context("LLM 响应为空")
+            .context("LLM 响应为空")?;
+        Ok((msg, data.usage.unwrap_or_default()))
     }
 
     pub async fn chat_completion_stream(
@@ -149,7 +161,9 @@ impl OpenAiClient {
         let stream = stream! {
             let mut buffer = String::new();
             let mut content = String::new();
+            let mut reasoning = String::new();
             let mut tool_calls: Vec<ToolCall> = Vec::new();
+            let mut last_usage = UsageInfo::default();
 
             futures::pin_mut!(byte_stream);
             while let Some(chunk_result) = byte_stream.next().await {
@@ -170,10 +184,14 @@ impl OpenAiClient {
                     }
                     let data = line.strip_prefix("data:").map(str::trim).unwrap_or(&line);
                     if data == "[DONE]" {
+                        if last_usage.total() > 0 {
+                            yield StreamEvent::Usage(last_usage.clone());
+                        }
                         let msg = AssistantMessage {
                             role: "assistant".into(),
                             content: if content.is_empty() { None } else { Some(content.clone()) },
                             tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls.clone()) },
+                            reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning.clone()) },
                         };
                         yield StreamEvent::Done(msg);
                         return;
@@ -183,7 +201,16 @@ impl OpenAiClient {
                         Ok(c) => c,
                         Err(_) => continue,
                     };
+                    if let Some(usage) = chunk.usage {
+                        last_usage = usage;
+                    }
                     for choice in chunk.choices {
+                        if let Some(text) = choice.delta.reasoning_content {
+                            if !text.is_empty() {
+                                reasoning.push_str(&text);
+                                yield StreamEvent::ReasoningDelta(text);
+                            }
+                        }
                         if let Some(text) = choice.delta.content {
                             if !text.is_empty() {
                                 content.push_str(&text);
@@ -219,10 +246,14 @@ impl OpenAiClient {
                             }
                         }
                         if choice.finish_reason.is_some() {
+                            if last_usage.total() > 0 {
+                                yield StreamEvent::Usage(last_usage.clone());
+                            }
                             let msg = AssistantMessage {
                                 role: "assistant".into(),
                                 content: if content.is_empty() { None } else { Some(content.clone()) },
                                 tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls.clone()) },
+                                reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning.clone()) },
                             };
                             yield StreamEvent::Done(msg);
                             return;
@@ -235,6 +266,3 @@ impl OpenAiClient {
         Ok(stream)
     }
 }
-
-// async-stream is not in deps - I used async_stream::stream! but didn't add the crate.
-// Let me rewrite without async-stream crate - use manual stream or add the dependency.

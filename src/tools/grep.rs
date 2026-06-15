@@ -17,6 +17,38 @@ impl GrepTool {
     pub fn new(workdir: PathBuf) -> Self {
         Self { workdir }
     }
+
+    async fn try_ripgrep(
+        &self,
+        pattern: &str,
+        search_path: &PathBuf,
+        glob_filter: Option<&str>,
+    ) -> Result<String> {
+        use tokio::process::Command;
+        let mut cmd = Command::new("rg");
+        cmd.arg("--line-number")
+            .arg("--no-heading")
+            .arg("--color=never")
+            .arg(pattern)
+            .current_dir(&self.workdir);
+        if search_path.is_file() {
+            cmd.arg(search_path);
+        } else {
+            cmd.arg(search_path);
+        }
+        if let Some(g) = glob_filter {
+            cmd.args(["--glob", g]);
+        }
+        let out = cmd.output().await?;
+        if !out.status.success() && out.status.code() != Some(1) {
+            anyhow::bail!("rg 失败");
+        }
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        if text.is_empty() {
+            return Ok(String::new());
+        }
+        Ok(truncate_output(&text, 30_000))
+    }
 }
 
 #[async_trait]
@@ -49,7 +81,6 @@ impl Tool for GrepTool {
         let pattern_str = args["pattern"]
             .as_str()
             .context("缺少 pattern 参数")?;
-        let re = Regex::new(pattern_str).context("无效的正则表达式")?;
 
         let search_path = args["path"]
             .as_str()
@@ -58,6 +89,14 @@ impl Tool for GrepTool {
             .unwrap_or_else(|| self.workdir.clone());
 
         let glob_filter = args["glob"].as_str();
+
+        if let Ok(out) = self.try_ripgrep(pattern_str, &search_path, glob_filter).await {
+            if !out.is_empty() {
+                return Ok(out);
+            }
+        }
+
+        let re = Regex::new(pattern_str).context("无效的正则表达式")?;
 
         let mut matches = Vec::new();
         let walker = if search_path.is_file() {

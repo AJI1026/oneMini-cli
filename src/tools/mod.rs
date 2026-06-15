@@ -1,4 +1,5 @@
 mod bash;
+mod delegate;
 mod edit;
 mod glob_tool;
 mod grep;
@@ -14,6 +15,7 @@ use std::sync::Arc;
 use crate::llm::ToolDefinition;
 
 pub use bash::BashTool;
+pub use delegate::DelegateTool;
 pub use edit::EditTool;
 pub use glob_tool::GlobTool;
 pub use grep::GrepTool;
@@ -54,6 +56,14 @@ impl ToolRegistry {
             Arc::new(BashTool::new(workdir.clone())),
         ];
         Self { tools }
+    }
+
+    pub fn register(&mut self, tool: Arc<dyn Tool>) {
+        self.tools.push(tool);
+    }
+
+    pub fn extend(&mut self, extra: &[Arc<dyn Tool>]) {
+        self.tools.extend(extra.iter().cloned());
     }
 
     pub fn definitions(&self) -> Vec<ToolDefinition> {

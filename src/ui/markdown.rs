@@ -3,7 +3,9 @@ use pulldown_cmark::{
     CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd,
 };
 
-/// 将 Markdown 渲染为带 ANSI 样式的终端文本。
+use super::theme;
+
+/// 将 Markdown 渲染为带 ANSI 样式的终端文本（蓝色主题）。
 pub fn render_markdown(input: &str) -> String {
     let mut out = String::new();
     let parser = Parser::new_ext(input, Options::all());
@@ -22,14 +24,17 @@ pub fn render_markdown(input: &str) -> String {
                 Tag::List(_) => list_depth += 1,
                 Tag::Item => {
                     out.push_str(&"  ".repeat(list_depth.saturating_sub(1)));
-                    out.push_str("• ");
+                    out.push_str(&format!("{} ", theme::accent("•")));
                 }
-                Tag::BlockQuote(_) => out.push_str(&"│ ".cyan().to_string()),
+                Tag::BlockQuote(_) => out.push_str(&theme::soft("│ ")),
                 Tag::CodeBlock(kind) => {
                     in_code_block = true;
                     if let CodeBlockKind::Fenced(lang) = kind {
-                        if !lang.is_empty() {
-                            out.push_str(&format!("{lang}\n").dimmed().to_string());
+                        let lang_str = lang.to_string();
+                        if lang_str == "diff" {
+                            out.push_str(&format!("{}\n", theme::primary_light("diff")));
+                        } else if !lang_str.is_empty() {
+                            out.push_str(&format!("{}\n", theme::muted(&lang_str)));
                         }
                     }
                 }
@@ -52,7 +57,10 @@ pub fn render_markdown(input: &str) -> String {
                 TagEnd::Item => out.push('\n'),
                 TagEnd::Link => {
                     if !link_url.is_empty() {
-                        out.push_str(&format!(" ({})", link_url.blue().underline()));
+                        out.push_str(&format!(
+                            " ({})",
+                            link_url.cyan().underline()
+                        ));
                         link_url.clear();
                     }
                 }
@@ -64,12 +72,12 @@ pub fn render_markdown(input: &str) -> String {
                 out.push_str(&style_text(&text, bold, italic, in_code_block, heading_level));
             }
             Event::Code(text) => {
-                out.push_str(&format!("`{}`", text.cyan()));
+                out.push_str(&format!("`{}`", theme::primary_light(&text)));
             }
             Event::SoftBreak => out.push(' '),
             Event::HardBreak => out.push('\n'),
             Event::Rule => {
-                out.push_str(&format!("{}\n", "─".repeat(40).dimmed()));
+                out.push_str(&format!("{}\n", theme::soft(&"─".repeat(40))));
             }
             _ => {}
         }
@@ -98,26 +106,32 @@ fn style_text(
     heading: Option<HeadingLevel>,
 ) -> String {
     if in_code_block {
-        return text.dimmed().to_string();
+        if text.starts_with('+') {
+            return theme::diff_add(text);
+        }
+        if text.starts_with('-') {
+            return theme::diff_remove(text);
+        }
+        return theme::muted(text);
     }
 
     let mut styled = text.to_string();
     if let Some(level) = heading {
         styled = match level {
-            HeadingLevel::H1 => styled.bold().white().to_string(),
-            HeadingLevel::H2 => styled.bold().to_string(),
-            HeadingLevel::H3 | HeadingLevel::H4 => styled.bold().dimmed().to_string(),
-            _ => styled.dimmed().to_string(),
+            HeadingLevel::H1 => styled.blue().bold().to_string(),
+            HeadingLevel::H2 => styled.cyan().bold().to_string(),
+            HeadingLevel::H3 | HeadingLevel::H4 => styled.bright_blue().bold().to_string(),
+            _ => theme::soft(&styled),
         };
         return styled;
     }
 
     if bold && italic {
-        styled.bold().italic().to_string()
+        styled.blue().bold().italic().to_string()
     } else if bold {
-        styled.bold().to_string()
+        styled.cyan().bold().to_string()
     } else if italic {
-        styled.italic().to_string()
+        styled.blue().italic().to_string()
     } else {
         styled
     }

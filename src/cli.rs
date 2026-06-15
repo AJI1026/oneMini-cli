@@ -11,13 +11,21 @@ use crate::ui;
 #[command(
     name = "onemini",
     version,
-    about = "OneMini CLI — 终端 AI 编程助手（类似 Claude Code）",
-    long_about = "在终端中与 AI 协作编写代码：读取/编辑文件、搜索代码库、执行命令。"
+    about = "OneMini CLI — 终端 AI 编程助手",
+    long_about = "在终端中与 AI 持续协作：读取/编辑文件、搜索代码库、执行命令、调试与重构。"
 )]
 pub struct Cli {
-    /// 一次性执行任务后退出（非交互模式）
+    /// 一次性执行任务后退出（与位置参数 TASK 二选一或同时使用）
     #[arg(short = 'p', long = "print")]
     pub prompt: Option<String>,
+
+    /// 一次性任务描述（执行后退出），例如: onemini "修复登录接口报错"
+    #[arg(value_name = "TASK", trailing_var_arg = true)]
+    pub task: Vec<String>,
+
+    /// 恢复上次交互会话（包含上下文与任务状态）
+    #[arg(long)]
+    pub resume: bool,
 
     /// 工作目录（默认当前目录）
     #[arg(short = 'C', long = "directory")]
@@ -43,14 +51,20 @@ pub struct Cli {
     #[arg(long)]
     pub dangerously_skip_permissions: bool,
 
+    /// 一次性任务输出 JSON（仅与 -p/--print 联用）
+    #[arg(long)]
+    pub output_json: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// 交互式对话（默认）
+    /// 交互式会话（默认）
     Chat,
+    /// 恢复上次交互会话
+    Resume,
     /// 配置管理
     Config {
         #[command(subcommand)]
@@ -148,6 +162,17 @@ impl Cli {
         Ok(())
     }
 
+    fn one_shot_prompt(&self) -> Option<String> {
+        if let Some(p) = &self.prompt {
+            return Some(p.clone());
+        }
+        if self.task.is_empty() {
+            None
+        } else {
+            Some(self.task.join(" "))
+        }
+    }
+
     pub async fn run(self) -> Result<()> {
         let mut config = Config::load()?;
         config.merge_cli(&self);
@@ -180,19 +205,33 @@ impl Cli {
             );
         }
 
+        let resume = self.resume || matches!(self.command, Some(Commands::Resume));
         let opts = AgentOptions {
             config,
             max_rounds: self.max_rounds,
             auto_approve: self.dangerously_skip_permissions,
+            resume,
         };
 
-        if let Some(prompt) = self.prompt {
-            let reply = run_agent(&opts, &prompt).await?;
-            println!("{}", crate::ui::render_markdown(&reply));
+        if let Some(prompt) = self.one_shot_prompt() {
+            let stream = !self.output_json;
+            let reply = run_agent(&opts, &prompt, stream).await?;
+            if self.output_json {
+                let json = serde_json::json!({
+                    "response": reply,
+                    "model": opts.config.model_name(),
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            } else if !stream {
+                println!("{}", crate::ui::render_markdown(&reply));
+            }
             return Ok(());
         }
 
-        let mut repl = Repl::new(opts)?;
+        let mut repl = Repl::new(opts).await?;
+        if resume {
+            println!("{}", ui::success("已恢复上次会话上下文"));
+        }
         repl.run().await.context("REPL 退出异常")
     }
 }

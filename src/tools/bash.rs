@@ -9,7 +9,7 @@ use tokio::time::{timeout, Duration};
 use super::{truncate_output, Tool};
 
 const TIMEOUT_SECS: u64 = 120;
-const MAX_OUTPUT: usize = 50_000;
+const PREVIEW_CHARS: usize = 1200;
 
 pub struct BashTool {
     workdir: PathBuf,
@@ -21,6 +21,18 @@ impl BashTool {
     }
 }
 
+#[derive(Debug, serde::Serialize)]
+struct BashResult {
+    success: bool,
+    exit_code: i32,
+    timed_out: bool,
+    command: String,
+    stdout_preview: String,
+    stderr_preview: String,
+    failure_reason: Option<String>,
+    retry_hint: Option<String>,
+}
+
 #[async_trait]
 impl Tool for BashTool {
     fn name(&self) -> &str {
@@ -28,7 +40,7 @@ impl Tool for BashTool {
     }
 
     fn description(&self) -> &str {
-        "在工作目录下执行 shell 命令。超时 120 秒。"
+        "在工作目录下执行 shell 命令。返回结构化 JSON（exit_code、stdout/stderr 摘要、失败原因、重试建议）。超时 120 秒。"
     }
 
     fn parameters_schema(&self) -> Value {
@@ -59,25 +71,82 @@ impl Tool for BashTool {
             .spawn()
             .context("启动 shell 失败")?;
 
-        let output = timeout(Duration::from_secs(TIMEOUT_SECS), child.wait_with_output())
-            .await
-            .context("命令执行超时")?
-            .context("等待命令结束失败")?;
+        let timed_out = match timeout(Duration::from_secs(TIMEOUT_SECS), child.wait_with_output()).await
+        {
+            Ok(result) => {
+                let output = result.context("等待命令结束失败")?;
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let code = output.status.code().unwrap_or(-1);
+                let success = output.status.success();
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let code = output.status.code().unwrap_or(-1);
+                let (failure_reason, retry_hint) = if success {
+                    (None, None)
+                } else {
+                    (
+                        Some(classify_failure(code, &stderr, &stdout)),
+                        Some(retry_hint_for(command, code, &stderr)),
+                    )
+                };
 
-        let mut result = format!("exit code: {code}\n");
-        if !stdout.is_empty() {
-            result.push_str("--- stdout ---\n");
-            result.push_str(&stdout);
-        }
-        if !stderr.is_empty() {
-            result.push_str("--- stderr ---\n");
-            result.push_str(&stderr);
-        }
+                let result = BashResult {
+                    success,
+                    exit_code: code,
+                    timed_out: false,
+                    command: command.to_string(),
+                    stdout_preview: preview(&stdout),
+                    stderr_preview: preview(&stderr),
+                    failure_reason,
+                    retry_hint,
+                };
+                return Ok(serde_json::to_string_pretty(&result)?);
+            }
+            Err(_) => BashResult {
+                success: false,
+                exit_code: -1,
+                timed_out: true,
+                command: command.to_string(),
+                stdout_preview: String::new(),
+                stderr_preview: String::new(),
+                failure_reason: Some(format!("命令执行超时（>{TIMEOUT_SECS}s）")),
+                retry_hint: Some("缩小命令范围或拆分步骤后重试".into()),
+            },
+        };
 
-        Ok(truncate_output(&result, MAX_OUTPUT))
+        Ok(serde_json::to_string_pretty(&timed_out)?)
     }
+}
+
+fn preview(text: &str) -> String {
+    truncate_output(text, PREVIEW_CHARS)
+}
+
+fn classify_failure(code: i32, stderr: &str, stdout: &str) -> String {
+    let err = if !stderr.trim().is_empty() {
+        stderr.trim()
+    } else {
+        stdout.trim()
+    };
+    if err.is_empty() {
+        format!("命令以非 0 退出（exit code: {code}）")
+    } else {
+        format!("exit code {code}: {}", err.chars().take(240).collect::<String>())
+    }
+}
+
+fn retry_hint_for(command: &str, code: i32, stderr: &str) -> String {
+    let lower = format!("{command} {stderr}").to_lowercase();
+    if lower.contains("not found") || lower.contains("no such file") {
+        return "检查命令是否存在、PATH 是否正确、工作目录是否正确".into();
+    }
+    if lower.contains("permission denied") {
+        return "检查文件权限或使用合适用户执行".into();
+    }
+    if lower.contains("could not compile") || lower.contains("error:") {
+        return "先修复编译错误，再重新运行 cargo build/test".into();
+    }
+    if code == 127 {
+        return "命令未找到，确认依赖已安装且命令拼写正确".into();
+    }
+    "根据 stderr 定位根因后，做最小修复并重试同一命令".into()
 }

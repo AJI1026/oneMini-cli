@@ -86,11 +86,6 @@ pub struct ChatRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct ChatCompletionResponse {
-    pub choices: Vec<Choice>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
 pub struct Choice {
     pub message: AssistantMessage,
@@ -105,12 +100,36 @@ pub struct AssistantMessage {
     pub role: String,
     pub content: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(default)]
+    pub reasoning_content: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
     ContentDelta(String),
+    ReasoningDelta(String),
     ToolCallDelta { name: Option<String> },
     Done(AssistantMessage),
+    Usage(UsageInfo),
     Error(String),
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct UsageInfo {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    #[serde(default)]
+    pub total_tokens: u32,
+    #[serde(default)]
+    pub reasoning_tokens: u32,
+}
+
+impl UsageInfo {
+    pub fn total(&self) -> u32 {
+        if self.total_tokens > 0 {
+            self.total_tokens
+        } else {
+            self.prompt_tokens + self.completion_tokens + self.reasoning_tokens
+        }
+    }
 }
