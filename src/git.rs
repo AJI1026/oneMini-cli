@@ -76,13 +76,13 @@ impl GitManager {
 
     pub fn suggest_commit_message(changed_files: &[String]) -> String {
         if changed_files.is_empty() {
-            return "chore: onemini checkpoint".into();
+            return "chore: onemini 检查点".into();
         }
         if changed_files.len() == 1 {
-            return format!("chore: update {}", changed_files[0]);
+            return format!("chore: 更新 {}", changed_files[0]);
         }
         format!(
-            "chore: update {} files ({})",
+            "chore: 更新 {} 个文件 ({})",
             changed_files.len(),
             changed_files
                 .iter()

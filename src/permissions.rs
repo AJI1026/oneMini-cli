@@ -54,7 +54,7 @@ impl PermissionManager {
 
     pub fn evaluate(&self, tool: &str, detail: &str) -> PermissionDecision {
         if self.rules.always_deny.iter().any(|t| t == tool) {
-            return PermissionDecision::Deny(format!("工具 {tool} 在 always_deny 中"));
+            return PermissionDecision::Deny(format!("工具 {tool} 已被始终拒绝（always_deny）"));
         }
         if self.rules.always_allow.iter().any(|t| t == tool) {
             return PermissionDecision::Allow;
@@ -63,7 +63,7 @@ impl PermissionManager {
         if tool == "bash" {
             for pat in &self.rules.bash_deny_patterns {
                 if pattern_match(pat, detail) {
-                    return PermissionDecision::Deny(format!("命令匹配 deny 规则: {pat}"));
+                    return PermissionDecision::Deny(format!("命令匹配拒绝规则: {pat}"));
                 }
             }
             for pat in &self.rules.bash_allow_patterns {

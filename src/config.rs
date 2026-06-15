@@ -259,11 +259,11 @@ impl Config {
             preset.base_url.to_string()
         };
         let base_url: String = Input::with_theme(&theme)
-            .with_prompt("API Base URL")
+            .with_prompt("API 接口地址")
             .default(base_default)
             .interact_text()?;
         if base_url.trim().is_empty() {
-            bail!("API Base URL 不能为空");
+            bail!("API 接口地址不能为空");
         }
         cfg.base_url = Some(base_url.trim().to_string());
 
@@ -273,11 +273,11 @@ impl Config {
         // 4. API Key
         println!();
         if opts.first_run {
-            println!("{}", crate::ui::dim("请输入 API Key（输入时不显示）"));
+            println!("{}", crate::ui::dim("请输入 API 密钥（输入时不显示）"));
         } else {
             println!(
                 "{}",
-                crate::ui::dim("按 Enter 保留当前 Key；首次配置或更换 Key 时请重新输入")
+                crate::ui::dim("按 Enter 保留当前密钥；首次配置或更换密钥时请重新输入")
             );
         }
         let current_key = cfg.api_key.as_deref().unwrap_or("");
@@ -287,7 +287,7 @@ impl Config {
             "****（已设置）".to_string()
         };
         let api_key = Password::with_theme(&theme)
-            .with_prompt(format!("API Key [{key_hint}]"))
+            .with_prompt(format!("API 密钥 [{key_hint}]"))
             .allow_empty_password(!opts.first_run)
             .interact()?;
         if !api_key.is_empty() {
@@ -295,7 +295,7 @@ impl Config {
         }
 
         if cfg.api_key.as_deref().unwrap_or("").is_empty() {
-            bail!("API Key 不能为空");
+            bail!("API 密钥不能为空");
         }
 
         // 5. 确认保存
@@ -351,14 +351,14 @@ impl Config {
         format!(
             "{}\n{}\n{}",
             crate::ui::status_pair(
-                "API Base",
+                "API 接口地址",
                 self.base_url.as_deref().unwrap_or("(未设置)"),
             ),
             crate::ui::status_pair(
                 "模型 ID",
                 self.model.as_deref().unwrap_or("(未设置)"),
             ),
-            crate::ui::status_pair("API Key", Self::mask_api_key(self.api_key.as_deref())),
+            crate::ui::status_pair("API 密钥", Self::mask_api_key(self.api_key.as_deref())),
         )
     }
 

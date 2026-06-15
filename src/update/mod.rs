@@ -40,12 +40,12 @@ pub async fn run(opts: UpdateOptions) -> Result<()> {
             .deprecation_reason
             .as_deref()
             .unwrap_or("该版本存在已知安全问题");
-        let msg = format!("警告: {tag} 已标记为 deprecated — {reason}");
+        let msg = format!("警告: {tag} 已标记为弃用 — {reason}");
         if opts.ignore_deprecated {
             println!("{}", crate::ui::warn(&format!("{msg}（已使用 --ignore-deprecated 继续）")));
         } else {
             bail!(
-                "{msg}\n如需继续安装，请显式添加 --ignore-deprecated"
+                "{msg}\n如需继续安装，请显式添加 --ignore-deprecated（忽略弃用警告）"
             );
         }
     }
@@ -175,7 +175,7 @@ fn extract_tar(archive: &Path, dest: &Path) -> Result<()> {
         .status()
         .context("执行 tar 失败（请确认系统已安装 tar）")?;
     if !status.success() {
-        bail!("解压失败，exit code: {:?}", status.code());
+        bail!("解压失败，退出码: {:?}", status.code());
     }
     Ok(())
 }

@@ -39,8 +39,8 @@ impl McpConnection {
         let mut child = cmd
             .spawn()
             .with_context(|| format!("启动 MCP 服务器 {} 失败", cfg.name))?;
-        let stdin = child.stdin.take().context("MCP stdin")?;
-        let stdout = child.stdout.take().context("MCP stdout")?;
+        let stdin = child.stdin.take().context("无法打开 MCP stdin")?;
+        let stdout = child.stdout.take().context("无法打开 MCP stdout")?;
         let mut conn = Self {
             _child: child,
             stdin,

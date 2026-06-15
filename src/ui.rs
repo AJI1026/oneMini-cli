@@ -42,7 +42,7 @@ pub fn reasoning_header() -> String {
     format!(
         "  {} {}",
         theme::thinking_icon(),
-        "Thinking".blue().bold()
+        "思考中".blue().bold()
     )
 }
 
@@ -82,7 +82,7 @@ pub fn assistant_prefix() -> String {
 }
 
 pub fn user_prefix() -> String {
-    theme::accent("You")
+    theme::accent("你")
 }
 
 pub fn dim(text: &str) -> String {

@@ -47,7 +47,7 @@ impl Tool for ReadTool {
     async fn execute(&self, args: Value) -> Result<String> {
         let path_str = args["path"]
             .as_str()
-            .context("缺少 path 参数")?;
+            .context("缺少路径参数")?;
         let path = resolve_path(&self.workdir, path_str)?;
 
         if !path.is_file() {
@@ -65,7 +65,7 @@ impl Tool for ReadTool {
         let end = (start + limit).min(lines.len());
 
         if start >= lines.len() {
-            return Ok(format!("文件共 {} 行，offset 超出范围", lines.len()));
+            return Ok(format!("文件共 {} 行，起始行超出范围", lines.len()));
         }
 
         let mut out = String::new();

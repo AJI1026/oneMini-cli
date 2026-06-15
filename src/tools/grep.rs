@@ -80,7 +80,7 @@ impl Tool for GrepTool {
     async fn execute(&self, args: Value) -> Result<String> {
         let pattern_str = args["pattern"]
             .as_str()
-            .context("缺少 pattern 参数")?;
+            .context("缺少 pattern（模式）参数")?;
 
         let search_path = args["path"]
             .as_str()

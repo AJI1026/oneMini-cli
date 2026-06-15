@@ -24,7 +24,7 @@ impl SessionUsage {
             .map(|c| format!(" · ~${c:.4}"))
             .unwrap_or_default();
         format!(
-            "⎿ {} in · {} out{} · total {}",
+            "⎿ 输入 {} · 输出 {}{} · 合计 {}",
             usage.prompt_tokens,
             usage.completion_tokens,
             cost_str,
@@ -43,7 +43,7 @@ impl SessionUsage {
             .map(|c| format!(" · 会话累计 ~${c:.4}"))
             .unwrap_or_default();
         format!(
-            "Token: {} in · {} out · {} 轮{}",
+            "令牌用量: 输入 {} · 输出 {} · {} 轮{}",
             self.prompt_tokens, self.completion_tokens, self.turns, cost
         )
     }

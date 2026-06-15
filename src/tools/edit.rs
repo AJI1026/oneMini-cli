@@ -46,13 +46,13 @@ impl Tool for EditTool {
     async fn execute(&self, args: Value) -> Result<String> {
         let path_str = args["path"]
             .as_str()
-            .context("缺少 path 参数")?;
+            .context("缺少路径参数")?;
         let old_string = args["old_string"]
             .as_str()
-            .context("缺少 old_string 参数")?;
+            .context("缺少 old_string（旧文本）参数")?;
         let new_string = args["new_string"]
             .as_str()
-            .context("缺少 new_string 参数")?;
+            .context("缺少 new_string（新文本）参数")?;
         let replace_all = args["replace_all"].as_bool().unwrap_or(false);
 
         let path = resolve_path(&self.workdir, path_str)?;
@@ -62,13 +62,13 @@ impl Tool for EditTool {
 
         let content = fs::read_to_string(&path)?;
         if !content.contains(old_string) {
-            anyhow::bail!("未找到匹配的 old_string");
+            anyhow::bail!("未找到匹配的旧文本");
         }
 
         let count = content.matches(old_string).count();
         if !replace_all && count > 1 {
             anyhow::bail!(
-                "old_string 在文件中出现 {count} 次，请提供更多上下文或设置 replace_all=true"
+                "旧文本在文件中出现 {count} 次，请提供更多上下文或设置 replace_all=true（全部替换）"
             );
         }
 

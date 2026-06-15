@@ -60,7 +60,7 @@ impl Tool for BashTool {
     async fn execute(&self, args: Value) -> Result<String> {
         let command = args["command"]
             .as_str()
-            .context("缺少 command 参数")?;
+            .context("缺少 command（命令）参数")?;
 
         let child = Command::new("sh")
             .arg("-c")
@@ -128,9 +128,9 @@ fn classify_failure(code: i32, stderr: &str, stdout: &str) -> String {
         stdout.trim()
     };
     if err.is_empty() {
-        format!("命令以非 0 退出（exit code: {code}）")
+        format!("命令以非 0 退出（退出码: {code}）")
     } else {
-        format!("exit code {code}: {}", err.chars().take(240).collect::<String>())
+        format!("退出码 {code}: {}", err.chars().take(240).collect::<String>())
     }
 }
 

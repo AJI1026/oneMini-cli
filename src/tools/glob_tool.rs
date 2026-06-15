@@ -46,7 +46,7 @@ impl Tool for GlobTool {
     async fn execute(&self, args: Value) -> Result<String> {
         let pattern = args["pattern"]
             .as_str()
-            .context("缺少 pattern 参数")?;
+            .context("缺少 pattern（模式）参数")?;
         let base = args["path"]
             .as_str()
             .map(|p| resolve_path(&self.workdir, p))

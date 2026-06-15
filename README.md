@@ -172,10 +172,56 @@ onemini --help
 ### 一键安装（从 Release 下载预编译二进制）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.sh | bash
+curl -fL --progress-bar https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.sh | bash
 ```
 
-该脚本会自动检测平台，下载对应预编译二进制并安装到 `~/.local/bin/`（可通过 `ONEMINI_INSTALL_DIR` 自定义）。
+该脚本会自动检测平台，下载对应预编译二进制并安装到 `~/.local/bin/`（可通过 `ONEMINI_INSTALL_DIR` 自定义），并**自动写入 shell 配置文件**（macOS 默认 `~/.zshrc`，Linux 默认 `~/.bashrc`）添加 PATH。若不想自动改配置，可设 `ONEMINI_SKIP_PATH=1`。
+
+下载过程中会显示进度条。若 GitHub 访问较慢或超时，可尝试：
+
+```bash
+# 使用 GitHub 镜像加速（国内网络常见）
+ONEMINI_MIRROR=https://ghproxy.com \
+  curl -fL --progress-bar https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.sh | bash
+
+# 或先下载脚本再本地执行（便于排查）
+curl -fL --progress-bar -o /tmp/onemini-install.sh \
+  https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.sh
+bash /tmp/onemini-install.sh
+```
+
+| 环境变量 | 说明 |
+|----------|------|
+| `ONEMINI_MIRROR` | GitHub 镜像前缀，如 `https://ghproxy.com` |
+| `ONEMINI_RAW_BASE` | 自定义 `versions.json` 等 raw 文件根 URL |
+| `ONEMINI_CONNECT_TIMEOUT` | 连接超时（秒，默认 15） |
+| `ONEMINI_DOWNLOAD_TIMEOUT` | 单次下载超时（秒，默认 600） |
+| `ONEMINI_QUIET=1` | 静默下载（不显示进度条） |
+
+> **注意**：一键安装依赖 GitHub Release 已发布且 `release/versions.json` 已写入真实 SHA256 与签名。若尚未打 tag 发布，请使用下方源码编译方式。
+
+#### Windows 一键安装
+
+在 **PowerShell** 中执行（需已安装 [Python 3](https://python.org) 与 [Git for Windows](https://git-scm.com/download/win)（含 OpenSSL））：
+
+```powershell
+irm https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.ps1 | iex
+```
+
+脚本会下载 `onemini.exe` 到 `%USERPROFILE%\.local\bin\`，并**自动写入用户 PATH**（无需手动打开系统设置）。若不想自动改 PATH，可设 `$env:ONEMINI_SKIP_PATH = "1"`。
+
+安装完成后请**新开一个终端**，然后运行：
+
+```powershell
+onemini --help
+```
+
+| 环境变量 | 说明 |
+|----------|------|
+| `ONEMINI_INSTALL_DIR` | 自定义安装目录（默认 `%USERPROFILE%\.local\bin`） |
+| `ONEMINI_VERSION` | 指定版本，如 `0.1.0` |
+| `ONEMINI_IGNORE_DEPRECATED` | 设为 `1` 允许安装已弃用版本 |
+| `ONEMINI_SKIP_PATH` | 设为 `1` 跳过自动 PATH 配置 |
 
 ### 更新 CLI
 
@@ -203,7 +249,7 @@ onemini update --version 0.1.0 --ignore-deprecated
 也可重新运行安装脚本（等价于更新到 latest）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.sh | bash
+curl -fL --progress-bar https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.sh | bash
 ```
 
 #### 维护者：发布 0.1.x 小版本

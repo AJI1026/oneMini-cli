@@ -58,7 +58,7 @@ impl OpenAiClient {
             .api_key
             .clone()
             .filter(|k| !k.is_empty())
-            .context("API Key 未配置")?;
+            .context("API 密钥未配置")?;
         let base_url = config
             .base_url
             .clone()

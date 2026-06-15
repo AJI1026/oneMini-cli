@@ -21,7 +21,7 @@ pub const AFTER_LONG_HELP: &str = "\
   onemini \"修复登录接口报错\"             同上（位置参数 TASK）
 
 子命令:
-  onemini config setup                 交互式配置 API Key / Base URL / 模型
+  onemini config setup                 交互式配置 API 密钥 / 接口地址 / 模型
   onemini config show                  查看当前配置
   onemini config set --api-key sk-...  命令行设置配置项
   onemini init                         初始化配置（等同 config setup）
@@ -35,8 +35,8 @@ pub const AFTER_LONG_HELP: &str = "\
   /config   查看配置          /exit     退出
 
 环境变量:
-  ONEMINI_API_KEY      API Key
-  ONEMINI_BASE_URL     API Base URL（OpenAI 兼容）
+  ONEMINI_API_KEY      API 密钥
+  ONEMINI_BASE_URL     API 接口地址（OpenAI 兼容）
   ONEMINI_MODEL        模型名称";
 
 #[derive(Parser, Debug)]
@@ -67,11 +67,11 @@ pub struct Cli {
     #[arg(short, long, env = "ONEMINI_MODEL")]
     pub model: Option<String>,
 
-    /// API Base URL（OpenAI 兼容）
+    /// API 接口地址（OpenAI 兼容）
     #[arg(long, env = "ONEMINI_BASE_URL")]
     pub base_url: Option<String>,
 
-    /// API Key
+    /// API 密钥
     #[arg(long, env = "ONEMINI_API_KEY")]
     pub api_key: Option<String>,
 
@@ -99,7 +99,7 @@ pub enum Commands {
     /// 恢复上次交互会话（含上下文与任务状态）
     #[command(after_long_help = "示例:\n  onemini resume\n  onemini --resume")]
     Resume,
-    /// 配置管理（API Key、Base URL、模型等）
+    /// 配置管理（API 密钥、接口地址、模型等）
     #[command(
         after_long_help = "\
 示例:\n  \
@@ -138,7 +138,7 @@ pub enum Commands {
         /// 即使版本相同也强制重新安装
         #[arg(long)]
         force: bool,
-        /// 允许下载 versions.json 中标记为 deprecated 的版本（默认拒绝）
+        /// 允许下载 versions.json 中标记为已弃用的版本（默认拒绝）
         #[arg(long)]
         ignore_deprecated: bool,
     },
@@ -149,7 +149,7 @@ pub enum ConfigAction {
     /// 显示当前配置
     #[command(after_long_help = "示例:\n  onemini config show\n  onemini config")]
     Show,
-    /// 交互式配置 API Key、Base URL、模型
+    /// 交互式配置 API 密钥、接口地址、模型
     #[command(after_long_help = "示例:\n  onemini config setup\n  onemini config setup --force")]
     Setup {
         /// 跳过确认，直接覆盖已有配置
@@ -164,11 +164,11 @@ pub enum ConfigAction {
   onemini config set --base-url https://api.deepseek.com --model deepseek-chat"
     )]
     Set {
-        /// API Key
+        /// API 密钥
         #[arg(long, env = "ONEMINI_API_KEY")]
         api_key: Option<String>,
 
-        /// API Base URL（OpenAI 兼容）
+        /// API 接口地址（OpenAI 兼容）
         #[arg(long, env = "ONEMINI_BASE_URL")]
         base_url: Option<String>,
 
@@ -301,10 +301,10 @@ impl Cli {
                 config.workdir = Some(workdir.clone());
             } else {
                 bail!(
-                    "未配置 API Key。{}\n\
+                    "未配置 API 密钥。{}\n\
                      也可设置环境变量 ONEMINI_API_KEY，或使用 {} 临时指定",
                     Config::setup_hint(),
-                    "--api-key <KEY>"
+                    "--api-key <密钥>"
                 );
             }
         }

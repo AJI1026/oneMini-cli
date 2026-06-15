@@ -249,7 +249,7 @@ impl AgentSession {
                     );
                 }
                 let _ = self.hooks.run_notification(&format!(
-                    "回合完成 · {} tokens",
+                    "回合完成 · {} 令牌",
                     self.last_turn_usage.total()
                 ));
                 self.persist()?;
@@ -370,7 +370,7 @@ impl AgentSession {
                 Ok(out)
             }
             Err(e) => {
-                let err = format!("[tool error] {e}");
+                let err = format!("[工具错误] {e}");
                 self.hooks.run_post_tool(name, &args, &err).ok();
                 self.track_tool_error(name, &args, &err);
                 if verbose {
@@ -397,7 +397,7 @@ impl AgentSession {
             return Ok(false);
         }
         let msg = crate::git::GitManager::suggest_commit_message(&self.task_state.changed_files);
-        match self.git.create_checkpoint(&format!("onemini checkpoint: {msg}")) {
+        match self.git.create_checkpoint(&format!("onemini 检查点: {msg}")) {
             Ok(hash) => {
                 if verbose {
                     println!(
@@ -457,23 +457,23 @@ impl AgentSession {
         }
 
         if verbose {
-            print!("{} 允许执行? [y/N/a=始终允许] ", ui::warn("权限"));
+            print!("{} 允许执行? [y/是/N/a=始终允许] ", ui::warn("权限"));
             io::stdout().flush()?;
             let mut line = String::new();
             io::stdin().read_line(&mut line)?;
             let answer = line.trim().to_lowercase();
-            if answer == "a" || answer == "always" {
+            if answer == "a" || answer == "always" || answer == "始终" {
                 // 用户选择始终允许此工具 — 提示写入 permissions.toml
                 println!(
                     "{}",
                     ui::dim(&format!(
-                        "提示: 可在 {} 的 always_allow 中添加 \"{name}\"",
+                        "提示: 可在 {} 的 always_allow（始终允许）中添加 \"{name}\"",
                         self.permissions.path().display()
                     ))
                 );
                 return Ok(true);
             }
-            return Ok(answer == "y" || answer == "yes");
+            return Ok(answer == "y" || answer == "yes" || answer == "是");
         }
         Ok(false)
     }
@@ -537,7 +537,10 @@ fn parse_bash_result(out: &str) -> (bool, Option<String>) {
             .map(str::to_string);
         return (success, reason);
     }
-    let failed = out.contains("exit code:") && !out.contains("exit code: 0");
+    let failed = (out.contains("exit code:") || out.contains("退出码"))
+        && !out.contains("exit code: 0")
+        && !out.contains("退出码: 0")
+        && !out.contains("退出码 0");
     (
         !failed,
         if failed {
@@ -585,11 +588,11 @@ fn summarize_args(name: &str, args: &Value) -> String {
     match name {
         "read" | "write" | "edit" => args["path"].as_str().unwrap_or("?").into(),
         "grep" => format!(
-            "pattern={}",
+            "模式={}",
             args["pattern"].as_str().unwrap_or("?")
         ),
         "glob" => format!(
-            "pattern={}",
+            "模式={}",
             args["pattern"].as_str().unwrap_or("?")
         ),
         "bash" => {

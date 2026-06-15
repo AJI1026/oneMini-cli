@@ -44,10 +44,10 @@ impl Tool for WriteTool {
     async fn execute(&self, args: Value) -> Result<String> {
         let path_str = args["path"]
             .as_str()
-            .context("缺少 path 参数")?;
+            .context("缺少路径参数")?;
         let content = args["content"]
             .as_str()
-            .context("缺少 content 参数")?;
+            .context("缺少 content（内容）参数")?;
 
         let path = resolve_path(&self.workdir, path_str)?;
 

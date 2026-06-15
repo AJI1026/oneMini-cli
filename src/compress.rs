@@ -31,7 +31,7 @@ pub async fn compress_messages(
     let mut transcript = String::new();
     for msg in to_summarize {
         let role = &msg.role;
-        let content = msg.content.as_deref().unwrap_or("[tool call]");
+        let content = msg.content.as_deref().unwrap_or("[工具调用]");
         transcript.push_str(&format!("[{role}] {content}\n\n"));
     }
 

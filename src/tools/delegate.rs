@@ -43,7 +43,7 @@ impl Tool for DelegateTool {
     async fn execute(&self, args: Value) -> Result<String> {
         let task = args["task"]
             .as_str()
-            .context("缺少 task 参数")?;
+            .context("缺少 task（任务）参数")?;
         let context = args["context"].as_str().unwrap_or("");
         let prompt = if context.is_empty() {
             task.to_string()

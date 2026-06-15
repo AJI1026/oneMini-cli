@@ -90,7 +90,7 @@ impl Repl {
                     "\n{}\n\
                       /help     显示帮助\n\
                       /plan     查看当前任务计划\n\
-                      /status   查看步骤、验证、Token 用量\n\
+                      /status   查看步骤、验证、令牌用量\n\
                       /retry    重试最近失败步骤\n\
                       /compact  压缩历史消息\n\
                       /rollback 回滚到最近 git 检查点\n\
