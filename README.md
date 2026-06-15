@@ -55,6 +55,10 @@ cargo install --path .
 
 ### 3. 配置 API
 
+首次运行 `onemini` 会自动进入交互式配置向导（选择服务商 → 模型 ID → Base URL → API Key）。
+
+也可随时手动配置：
+
 ```bash
 onemini config setup
 ```
@@ -64,6 +68,8 @@ onemini config setup
 ```bash
 onemini config set --api-key "sk-..." --base-url "https://api.deepseek.com" --model "deepseek-chat"
 ```
+
+交互模式中可用 `/config` 查看配置，`/config setup` 重新配置。
 
 配置文件位置：
 
@@ -97,6 +103,7 @@ onemini "重构 config 模块，保持现有行为并通过 cargo test"
 - `/retry` 重试最近失败步骤
 - `/clear` 清空会话与任务状态
 - `/config` 查看配置
+- `/config setup` 重新配置 API / 模型
 - `/help` 查看帮助
 - `/exit` 退出
 

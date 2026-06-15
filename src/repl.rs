@@ -4,6 +4,7 @@ use rustyline::DefaultEditor;
 
 use crate::agent::AgentOptions;
 use crate::agent::AgentSession;
+use crate::config::{Config, ConfigureOptions};
 use crate::slash::SlashRegistry;
 use crate::ui;
 
@@ -94,7 +95,8 @@ impl Repl {
                       /compact  压缩历史消息\n\
                       /rollback 回滚到最近 git 检查点\n\
                       /clear    清空对话历史\n\
-                      /config   显示配置\n\
+                      /config        显示当前配置\n\
+                      /config setup  重新配置 API / 模型\n\
                       /exit     退出\n{}",
                     ui::section_title("可用命令"),
                     self.slash.format_help()
@@ -146,7 +148,28 @@ impl Repl {
                 println!("{}", ui::success("对话历史与任务状态已清空"));
             }
             Some("/config") => {
-                println!("{}", self.session.opts.config.display());
+                if parts.get(1) == Some(&"setup") {
+                    let force = parts.get(2) == Some(&"--force");
+                    match Config::configure_interactive(ConfigureOptions::setup(force)) {
+                        Ok(path) => {
+                            println!(
+                                "{}",
+                                ui::success(&format!("配置已保存: {}", path.display()))
+                            );
+                            match self.session.reload_config() {
+                                Ok(()) => {
+                                    println!("{}", ui::success("当前会话已应用新配置"));
+                                    println!();
+                                    println!("{}", self.session.opts.config.display());
+                                }
+                                Err(e) => println!("{}", ui::error(&e.to_string())),
+                            }
+                        }
+                        Err(e) => println!("{}", ui::error(&e.to_string())),
+                    }
+                } else {
+                    println!("{}", self.session.opts.config.display());
+                }
             }
             Some(cmd) => {
                 let name = cmd.trim_start_matches('/');

@@ -1,11 +1,43 @@
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use std::io::{stdin, IsTerminal};
 use std::path::PathBuf;
 
 use crate::agent::{run_agent, AgentOptions};
-use crate::config::{Config, ConfigPatch};
+use crate::config::{Config, ConfigPatch, ConfigureOptions};
 use crate::repl::Repl;
 use crate::ui;
+
+pub const AFTER_HELP: &str = "\
+常用: onemini | onemini --resume | onemini -p \"任务\" | onemini config setup\n\
+详细说明请使用: onemini --help";
+
+pub const AFTER_LONG_HELP: &str = "\
+常用用法:
+  onemini                              进入交互会话（默认）
+  onemini --resume                     恢复上次会话（含历史与任务状态）
+  onemini -C /path/to/project          指定工作目录
+  onemini -p \"运行 cargo test\"         一次性任务，执行后退出
+  onemini \"修复登录接口报错\"             同上（位置参数 TASK）
+
+子命令:
+  onemini config setup                 交互式配置 API Key / Base URL / 模型
+  onemini config show                  查看当前配置
+  onemini config set --api-key sk-...  命令行设置配置项
+  onemini init                         初始化配置（等同 config setup）
+  onemini update --check               检查是否有新版本
+  onemini update                       更新到 GitHub Release 最新版
+
+交互模式会话命令（进入 onemini 后输入）:
+  /help     显示帮助          /plan     查看当前任务计划
+  /status   查看步骤与用量    /retry    重试最近失败步骤
+  /compact  压缩历史消息      /clear    清空会话
+  /config   查看配置          /exit     退出
+
+环境变量:
+  ONEMINI_API_KEY      API Key
+  ONEMINI_BASE_URL     API Base URL（OpenAI 兼容）
+  ONEMINI_MODEL        模型名称";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -61,22 +93,40 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// 交互式会话（默认）
+    /// 交互式会话（默认，直接运行 onemini 等效）
+    #[command(after_long_help = "示例:\n  onemini\n  onemini -C /path/to/project")]
     Chat,
-    /// 恢复上次交互会话
+    /// 恢复上次交互会话（含上下文与任务状态）
+    #[command(after_long_help = "示例:\n  onemini resume\n  onemini --resume")]
     Resume,
-    /// 配置管理
+    /// 配置管理（API Key、Base URL、模型等）
+    #[command(
+        after_long_help = "\
+示例:\n  \
+  onemini config show\n  \
+  onemini config setup\n  \
+  onemini config set --api-key sk-... --base-url https://api.deepseek.com --model deepseek-chat"
+    )]
     Config {
         #[command(subcommand)]
         action: Option<ConfigAction>,
     },
     /// 初始化配置（交互式，等同于 config setup）
+    #[command(after_long_help = "示例:\n  onemini init\n  onemini init --force")]
     Init {
         /// 强制覆盖已有配置
         #[arg(long)]
         force: bool,
     },
     /// 检查并更新到 GitHub Release 最新版
+    #[command(
+        after_long_help = "\
+示例:\n  \
+  onemini update --check\n  \
+  onemini update\n  \
+  onemini update --version 0.1.1\n  \
+  onemini update --force"
+    )]
     Update {
         /// 仅检查是否有新版本，不下载安装
         #[arg(long)]
@@ -93,14 +143,22 @@ pub enum Commands {
 #[derive(Subcommand, Debug)]
 pub enum ConfigAction {
     /// 显示当前配置
+    #[command(after_long_help = "示例:\n  onemini config show\n  onemini config")]
     Show,
     /// 交互式配置 API Key、Base URL、模型
+    #[command(after_long_help = "示例:\n  onemini config setup\n  onemini config setup --force")]
     Setup {
         /// 跳过确认，直接覆盖已有配置
         #[arg(long)]
         force: bool,
     },
     /// 通过命令行设置配置项并保存
+    #[command(
+        after_long_help = "\
+示例:\n  \
+  onemini config set --api-key sk-...\n  \
+  onemini config set --base-url https://api.deepseek.com --model deepseek-chat"
+    )]
     Set {
         /// API Key
         #[arg(long, env = "ONEMINI_API_KEY")]
@@ -125,6 +183,13 @@ pub enum ConfigAction {
 }
 
 impl Cli {
+    /// 构建带使用说明的 clap Command
+    pub fn command_with_hints() -> clap::Command {
+        Self::command()
+            .after_help(AFTER_HELP)
+            .after_long_help(AFTER_LONG_HELP)
+    }
+
     fn run_config_command(action: Option<ConfigAction>) -> Result<()> {
         match action {
             None | Some(ConfigAction::Show) => {
@@ -132,7 +197,7 @@ impl Cli {
                 println!("{}", config.display());
             }
             Some(ConfigAction::Setup { force }) => {
-                let path = Config::configure_interactive(force)?;
+                let path = Config::configure_interactive(ConfigureOptions::setup(force))?;
                 println!("{}", ui::success(&format!("配置已保存: {}", path.display())));
                 let config = Config::load()?;
                 println!();
@@ -194,7 +259,7 @@ impl Cli {
             .clone()
             .or(config.workdir.clone())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-        config.workdir = Some(workdir);
+        config.workdir = Some(workdir.clone());
 
         match self.command {
             Some(Commands::Config { action }) => {
@@ -217,12 +282,21 @@ impl Cli {
         }
 
         if config.api_key.as_deref().unwrap_or("").is_empty() {
-            bail!(
-                "未配置 API Key。{}\n\
-                 也可设置环境变量 ONEMINI_API_KEY，或使用 {} 临时指定",
-                Config::setup_hint(),
-                "--api-key <KEY>"
-            );
+            if stdin().is_terminal() {
+                let path = Config::configure_interactive(ConfigureOptions::first_run())?;
+                println!("{}", ui::success(&format!("配置已保存: {}", path.display())));
+                println!();
+                config = Config::load()?;
+                config.merge_cli(&self);
+                config.workdir = Some(workdir.clone());
+            } else {
+                bail!(
+                    "未配置 API Key。{}\n\
+                     也可设置环境变量 ONEMINI_API_KEY，或使用 {} 临时指定",
+                    Config::setup_hint(),
+                    "--api-key <KEY>"
+                );
+            }
         }
 
         let resume = self.resume || matches!(self.command, Some(Commands::Resume));

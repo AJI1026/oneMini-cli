@@ -107,6 +107,14 @@ impl AgentSession {
         )
     }
 
+    pub fn reload_config(&mut self) -> Result<()> {
+        let mut cfg = Config::load()?;
+        cfg.workdir = self.opts.config.workdir.clone();
+        self.client = OpenAiClient::new(&cfg)?;
+        self.opts.config = cfg;
+        Ok(())
+    }
+
     pub fn workdir(&self) -> &Path {
         self.opts.config.workdir()
     }
