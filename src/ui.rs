@@ -9,9 +9,27 @@ pub use markdown::render_markdown;
 pub use plan::render_plan_text;
 pub use stream::{print_diff_preview, print_usage_line, StreamRenderer};
 
+const LOGO_ART: &str = r"        .=====:
+   .:==-*:   .#+-+-
+ -**#- .*-   :#= :+*:
+ .+-    .++--=-    -#-..
+ -#.    :-  .++     =+..
+ **    .-+++++:     =*:
+ =%. .+*=:.   :-:   =*
+  **.#+         := -#:
+   ==#=         .+ =:
+     :+=:.....:--
+        :::::::.";
+
 pub fn banner() -> String {
+    let art = LOGO_ART
+        .lines()
+        .map(theme::primary_light)
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
-        "{}\n{}",
+        "{}\n{}\n{}",
+        art,
         theme::primary("OneMini CLI"),
         theme::muted("终端 AI 编程助手 · 输入 /help 查看命令 · Ctrl+C 退出")
     )
