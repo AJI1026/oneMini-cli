@@ -35,9 +35,14 @@ pub const AFTER_LONG_HELP: &str = "\
   /config   查看配置          /exit     退出
 
 环境变量:
+  ONEMINI_ENV          环境标识：development | staging | production（默认 development）
   ONEMINI_API_KEY      API 密钥
   ONEMINI_BASE_URL     API 接口地址（OpenAI 兼容）
-  ONEMINI_MODEL        模型名称";
+  ONEMINI_MODEL        模型名称
+
+环境文件（按 ONEMINI_ENV 加载，勿提交 Git）:
+  .env.development / .env.staging / .env.production
+  可复制 .env.example 为对应文件；用户目录 ~/.config/onemini/ 下同名文件亦可";
 
 #[derive(Parser, Debug)]
 #[command(

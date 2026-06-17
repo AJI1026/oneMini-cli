@@ -148,7 +148,47 @@ impl Config {
         Ok(Self::config_dir()?.join("config.toml"))
     }
 
+    fn resolve_onemini_env() -> String {
+        let raw = std::env::var("ONEMINI_ENV").unwrap_or_else(|_| "development".to_string());
+        let lower = raw.trim().to_lowercase();
+        match lower.as_str() {
+            "development" | "staging" | "production" => lower,
+            _ => "development".to_string(),
+        }
+    }
+
+    fn load_env_files() {
+        let env = Self::resolve_onemini_env();
+        let names = [format!(".env.{env}"), format!(".env.{env}.local")];
+
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        if let Ok(cwd) = std::env::current_dir() {
+            dirs.push(cwd);
+        }
+        if let Ok(user_dir) = Self::config_dir() {
+            dirs.push(user_dir);
+        }
+
+        for dir in dirs {
+            for (index, name) in names.iter().enumerate() {
+                let path = dir.join(name);
+                if !path.is_file() {
+                    continue;
+                }
+                let result = if index == 0 {
+                    dotenvy::from_filename(&path)
+                } else {
+                    dotenvy::from_filename_override(&path)
+                };
+                if let Err(err) = result {
+                    eprintln!("警告: 加载 {} 失败: {err}", path.display());
+                }
+            }
+        }
+    }
+
     pub fn load() -> Result<Self> {
+        Self::load_env_files();
         let path = Self::config_path()?;
         if path.exists() {
             let text = fs::read_to_string(&path)
