@@ -129,6 +129,15 @@ impl AgentSession {
         self.opts.permission_mode = mode;
     }
 
+    pub fn disable_auto_mode(&self) -> bool {
+        self.managed_settings.disable_auto_mode
+    }
+
+    pub fn permissions_summary(&self) -> String {
+        self.permissions
+            .format_summary(self.opts.permission_mode, &self.managed_settings)
+    }
+
     pub fn reload_config(&mut self) -> Result<()> {
         let mut cfg = Config::load()?;
         cfg.workdir = self.opts.config.workdir.clone();
@@ -374,9 +383,16 @@ impl AgentSession {
             .get(name)
             .with_context(|| format!("未知工具: {name}"))?;
 
+        let mut hook_force_ask = false;
         match self.hooks.run_pre_tool(name, &args) {
             Ok(HookOutcome::Deny(reason)) => {
                 return Ok(format!("[hook 拒绝] {reason}"));
+            }
+            Ok(HookOutcome::Ask(reason)) => {
+                hook_force_ask = true;
+                if verbose && !reason.is_empty() {
+                    println!("{}", ui::warn(&reason));
+                }
             }
             Ok(HookOutcome::Modified(v)) => args = v,
             Ok(HookOutcome::Continue) => {}
@@ -392,7 +408,7 @@ impl AgentSession {
             // checkpoint created
         }
 
-        if !self.check_permission(&tool, name, &detail, &args, verbose)? {
+        if !self.check_permission(&tool, name, &detail, &args, verbose, hook_force_ask)? {
             return Ok("[用户拒绝执行]".into());
         }
 
@@ -458,6 +474,7 @@ impl AgentSession {
         detail: &str,
         args: &Value,
         verbose: bool,
+        force_ask: bool,
     ) -> Result<bool> {
         let workdir = self.workdir().to_path_buf();
         let mode = self.opts.permission_mode;
@@ -489,12 +506,13 @@ impl AgentSession {
                 }
                 return Ok(false);
             }
-            PermissionDecision::Allow => return Ok(true),
+            PermissionDecision::Allow if !force_ask => return Ok(true),
             PermissionDecision::Ask(reason) => {
                 if !reason.is_empty() && verbose {
                     println!("{}", ui::warn(reason));
                 }
             }
+            PermissionDecision::Allow => {}
         }
 
         if tool_name == "bash"

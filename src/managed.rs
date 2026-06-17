@@ -3,14 +3,17 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::hooks::HookConfig;
 use crate::permissions::PermissionRulesFile;
 
 #[derive(Debug, Clone, Default)]
 pub struct ManagedSettings {
     pub disable_bypass_permissions: bool,
+    pub disable_auto_mode: bool,
     pub allow_managed_rules_only: bool,
     pub allow_managed_hooks_only: bool,
     pub rules: PermissionRulesFile,
+    pub hooks: HookConfig,
     pub hook_fail_open: bool,
     pub source: Option<PathBuf>,
 }
@@ -20,6 +23,8 @@ struct ManagedFile {
     #[serde(default)]
     disable_bypass_permissions: bool,
     #[serde(default)]
+    disable_auto_mode: bool,
+    #[serde(default)]
     allow_managed_rules_only: bool,
     #[serde(default)]
     allow_managed_hooks_only: bool,
@@ -27,6 +32,8 @@ struct ManagedFile {
     hook_fail_open: bool,
     #[serde(default)]
     rules: PermissionRulesFile,
+    #[serde(default)]
+    hooks: HookConfig,
 }
 
 impl ManagedSettings {
@@ -42,10 +49,12 @@ impl ManagedSettings {
                 rules.migrate_legacy();
                 return Ok(Self {
                     disable_bypass_permissions: file.disable_bypass_permissions,
+                    disable_auto_mode: file.disable_auto_mode,
                     allow_managed_rules_only: file.allow_managed_rules_only,
                     allow_managed_hooks_only: file.allow_managed_hooks_only,
                     hook_fail_open: file.hook_fail_open,
                     rules,
+                    hooks: file.hooks,
                     source: Some(path),
                 });
             }

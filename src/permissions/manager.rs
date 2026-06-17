@@ -27,7 +27,7 @@ pub struct PermissionManager {
 impl PermissionManager {
     pub fn load(managed: &crate::managed::ManagedSettings) -> Result<Self> {
         let path = crate::config::Config::config_dir()?.join("permissions.toml");
-        let mut user_rules = if path.exists() {
+        let user_rules = if path.exists() {
             let text = fs::read_to_string(&path)
                 .with_context(|| format!("读取权限配置失败: {}", path.display()))?;
             let mut file: PermissionRulesFile = toml::from_str(&text).unwrap_or_default();
@@ -111,11 +111,13 @@ impl PermissionManager {
             return PermissionDecision::Deny("dont-ask 模式：未匹配 allow 规则".into());
         }
 
-        if mode == PermissionMode::AcceptEdits
-            && matches!(tool, "write" | "edit")
-            && !is_sensitive_write(args, workdir)
-        {
-            return PermissionDecision::Allow;
+        if mode == PermissionMode::AcceptEdits {
+            if matches!(tool, "write" | "edit") && !is_sensitive_write(args, workdir) {
+                return PermissionDecision::Allow;
+            }
+            if tool == "bash" && is_safe_filesystem_bash(detail) {
+                return PermissionDecision::Allow;
+            }
         }
 
         if mode == PermissionMode::Auto {
@@ -222,6 +224,69 @@ impl PermissionManager {
         crate::fs_util::write_private(&self.path, text)?;
         Ok(())
     }
+
+    pub fn format_summary(
+        &self,
+        mode: PermissionMode,
+        managed: &crate::managed::ManagedSettings,
+    ) -> String {
+        fn count_rules(file: &PermissionRulesFile) -> (usize, usize, usize) {
+            let mut allow = 0;
+            let mut deny = 0;
+            let mut ask = 0;
+            for r in &file.rules {
+                match r.effect {
+                    RuleEffect::Allow => allow += 1,
+                    RuleEffect::Deny => deny += 1,
+                    RuleEffect::Ask => ask += 1,
+                }
+            }
+            (allow, deny, ask)
+        }
+
+        let (b_a, b_d, b_k) = count_rules(&self.builtin_rules);
+        let (m_a, m_d, m_k) = count_rules(&self.managed_rules);
+        let user = if self.allow_managed_rules_only {
+            &PermissionRulesFile::default()
+        } else {
+            &self.user_rules
+        };
+        let (u_a, u_d, u_k) = count_rules(user);
+
+        let managed_src = managed
+            .source
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "(未配置)".into());
+
+        format!(
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            crate::ui::status_pair("当前权限模式", mode.label()),
+            crate::ui::status_pair("用户规则文件", &self.path.display().to_string()),
+            crate::ui::status_pair("托管策略", &managed_src),
+            crate::ui::status_pair(
+                "内置规则",
+                &format!("allow {b_a} · deny {b_d} · ask {b_k}"),
+            ),
+            crate::ui::status_pair(
+                "托管规则",
+                &format!("allow {m_a} · deny {m_d} · ask {m_k}"),
+            ),
+            crate::ui::status_pair(
+                "用户规则",
+                &format!("allow {u_a} · deny {u_d} · ask {u_k}"),
+            ),
+            crate::ui::status_pair(
+                "仅托管规则",
+                if self.allow_managed_rules_only {
+                    "是"
+                } else {
+                    "否"
+                },
+            ),
+            crate::ui::dim("编辑用户规则: permissions.toml · 托管: managed.toml"),
+        )
+    }
 }
 
 fn rule_matches(
@@ -284,4 +349,78 @@ fn is_sensitive_path_write(path: &str, workdir: &Path) -> bool {
         || path_pattern_match("**/id_rsa*", path, workdir)
         || path_pattern_match(".git/**", path, workdir)
         || path_pattern_match(".onemini/**", path, workdir)
+}
+
+/// accept-edits 模式下可自动放行的安全文件系统 bash（单条、无链式）。
+fn is_safe_filesystem_bash(detail: &str) -> bool {
+    let cmd = detail.trim();
+    if cmd.is_empty() {
+        return false;
+    }
+    let lower = cmd.to_lowercase();
+    if lower.contains("&&")
+        || lower.contains(';')
+        || lower.contains('|')
+        || lower.contains("$(")
+        || lower.contains('`')
+    {
+        return false;
+    }
+    lower.starts_with("mkdir ")
+        || lower.starts_with("touch ")
+        || lower.starts_with("mv ")
+        || lower.starts_with("cp ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::managed::ManagedSettings;
+    use serde_json::json;
+    use std::path::Path;
+
+    fn test_manager() -> PermissionManager {
+        PermissionManager::load(&ManagedSettings::default()).expect("load permissions")
+    }
+
+    #[test]
+    fn builtin_deny_sensitive_read() {
+        let mgr = test_manager();
+        let workdir = Path::new("/tmp/project");
+        let args = json!({"path": ".env"});
+        let d = mgr.evaluate("read", ".env", &args, workdir, PermissionMode::Default, false);
+        assert!(matches!(d, PermissionDecision::Deny(_)));
+    }
+
+    #[test]
+    fn accept_edits_allows_safe_bash() {
+        let mgr = test_manager();
+        let workdir = Path::new("/tmp/project");
+        let args = json!({"command": "mkdir src"});
+        let d = mgr.evaluate(
+            "bash",
+            "mkdir src",
+            &args,
+            workdir,
+            PermissionMode::AcceptEdits,
+            false,
+        );
+        assert!(matches!(d, PermissionDecision::Allow));
+    }
+
+    #[test]
+    fn accept_edits_rejects_chained_bash() {
+        let mgr = test_manager();
+        let workdir = Path::new("/tmp/project");
+        let args = json!({"command": "mkdir a && rm -rf b"});
+        let d = mgr.evaluate(
+            "bash",
+            "mkdir a && rm -rf b",
+            &args,
+            workdir,
+            PermissionMode::AcceptEdits,
+            false,
+        );
+        assert!(!matches!(d, PermissionDecision::Allow));
+    }
 }

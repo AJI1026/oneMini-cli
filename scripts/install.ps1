@@ -7,12 +7,14 @@
 
 $ErrorActionPreference = "Stop"
 
+# Must match release/signing_public_key.b64 and the onemini updater embedded key.
+$EmbeddedSigningPublicKeyB64 = "TOZSDtW7+y9gjKglkfmBIZBkaQ/i9hxHOq6ws/xAg2Q="
+
 $Repo = "AJI1026/OneMini-CLI"
 $BinaryName = "onemini"
 $RawBase = "https://raw.githubusercontent.com/$Repo/main"
 $VersionsIndex = "$RawBase/release/versions.json"
 $VersionsSig = "$RawBase/release/versions.json.sig"
-$PubkeyUrl = "$RawBase/release/signing_public_key.b64"
 $VerifyPyUrl = "$RawBase/scripts/verify_signature.py"
 
 $InstallDir = if ($env:ONEMINI_INSTALL_DIR) {
@@ -167,8 +169,8 @@ try {
 
     Invoke-SecureDownload $VersionsIndex $indexPath
     Invoke-SecureDownload $VersionsSig $indexSigPath
-    Invoke-SecureDownload $PubkeyUrl $pubkeyPath
     Invoke-SecureDownload $VerifyPyUrl $verifyPyPath
+    Set-Content -Path $pubkeyPath -Value $EmbeddedSigningPublicKeyB64 -NoNewline -Encoding ASCII
 
     Write-Info "verifying versions.json signature"
     Invoke-VerifyBlob $indexPath $indexSigPath $pubkeyPath $verifyPyPath $pythonPath $opensslPath

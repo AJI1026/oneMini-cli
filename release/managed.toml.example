@@ -1,0 +1,21 @@
+# 企业托管策略示例
+# macOS: /Library/Application Support/onemini/managed.toml
+# Linux: /etc/onemini/managed.toml
+# Windows: C:\ProgramData\onemini\managed.toml
+# 或通过环境变量 ONEMINI_MANAGED_SETTINGS 指定路径
+
+disable_bypass_permissions = true
+disable_auto_mode = false
+allow_managed_rules_only = false
+allow_managed_hooks_only = false
+hook_fail_open = false
+
+[[rules]]
+effect = "deny"
+tool = "bash"
+pattern = "curl *"
+
+[[hooks.hooks]]
+event = "PreToolUse"
+tool = "bash"
+command = "python3 /opt/onemini/hooks/audit_bash.py"

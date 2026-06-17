@@ -17,13 +17,7 @@ pub const VERSIONS_SIG_URL: &str =
     "https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/release/versions.json.sig";
 
 pub fn secure_http_client() -> Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .user_agent("onemini-cli-updater")
-        .timeout(std::time::Duration::from_secs(120))
-        .min_tls_version(reqwest::tls::Version::TLS_1_2)
-        .https_only(true)
-        .build()
-        .context("创建 HTTPS 客户端失败")
+    crate::fs_util::secure_http_client("onemini-cli-updater", 120)
 }
 
 pub fn ensure_https_url(url: &str) -> Result<()> {

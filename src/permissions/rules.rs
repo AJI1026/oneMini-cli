@@ -88,6 +88,46 @@ impl PermissionRulesFile {
                 },
                 PermissionRule {
                     effect: RuleEffect::Deny,
+                    tool: "grep".into(),
+                    pattern: "**/.env*".into(),
+                },
+                PermissionRule {
+                    effect: RuleEffect::Deny,
+                    tool: "grep".into(),
+                    pattern: "**/id_rsa*".into(),
+                },
+                PermissionRule {
+                    effect: RuleEffect::Deny,
+                    tool: "grep".into(),
+                    pattern: "**/*.pem".into(),
+                },
+                PermissionRule {
+                    effect: RuleEffect::Deny,
+                    tool: "grep".into(),
+                    pattern: "**/credentials.json".into(),
+                },
+                PermissionRule {
+                    effect: RuleEffect::Deny,
+                    tool: "glob".into(),
+                    pattern: "**/.env*".into(),
+                },
+                PermissionRule {
+                    effect: RuleEffect::Deny,
+                    tool: "glob".into(),
+                    pattern: "**/id_rsa*".into(),
+                },
+                PermissionRule {
+                    effect: RuleEffect::Deny,
+                    tool: "glob".into(),
+                    pattern: "**/*.pem".into(),
+                },
+                PermissionRule {
+                    effect: RuleEffect::Deny,
+                    tool: "glob".into(),
+                    pattern: "**/credentials.json".into(),
+                },
+                PermissionRule {
+                    effect: RuleEffect::Deny,
                     tool: "write".into(),
                     pattern: "**/.env*".into(),
                 },

@@ -339,6 +339,10 @@ impl Cli {
             PermissionMode::Default
         };
 
+        if permission_mode == PermissionMode::Auto && managed.disable_auto_mode {
+            bail!("托管策略已禁用 auto 权限模式");
+        }
+
         let opts = AgentOptions {
             config,
             max_rounds: self.max_rounds,

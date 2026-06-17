@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::config::Config;
 use crate::llm::{ChatMessage, OpenAiClient, ToolCall};
+use crate::permissions::PermissionMode;
 use crate::sandbox::SandboxRunner;
 use crate::tools::ToolRegistry;
 use crate::worktree::GitWorktree;
@@ -43,7 +44,7 @@ async fn run_subtask_inner(workdir: PathBuf, prompt: &str) -> Result<String> {
     ];
 
     for _ in 0..MAX_SUBAGENT_ROUNDS {
-        let tools = Some(registry.definitions());
+        let tools = Some(registry.definitions_for_mode(PermissionMode::Plan));
         let (assistant, _) = client.chat_completion(messages.clone(), tools).await?;
         let tool_calls = assistant.tool_calls.clone().unwrap_or_default();
 

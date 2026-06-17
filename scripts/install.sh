@@ -7,13 +7,15 @@
 
 set -euo pipefail
 
+# 与 release/signing_public_key.b64 及 onemini update 内置公钥一致（勿从网络下载公钥）
+EMBEDDED_SIGNING_PUBLIC_KEY_B64="TOZSDtW7+y9gjKglkfmBIZBkaQ/i9hxHOq6ws/xAg2Q="
+
 REPO="AJI1026/OneMini-CLI"
 BINARY_NAME="onemini"
 GITHUB="https://github.com/${REPO}"
 RAW_BASE="${ONEMINI_RAW_BASE:-https://raw.githubusercontent.com/${REPO}/main}"
 VERSIONS_INDEX="${RAW_BASE}/release/versions.json"
 VERSIONS_SIG="${RAW_BASE}/release/versions.json.sig"
-PUBKEY_URL="${RAW_BASE}/release/signing_public_key.b64"
 VERIFY_PY="${RAW_BASE}/scripts/verify_signature.py"
 
 INSTALL_DIR="${ONEMINI_INSTALL_DIR:-${HOME}/.local/bin}"
@@ -240,8 +242,8 @@ main() {
 
   download "${VERSIONS_INDEX}" "${tmpdir}/versions.json"
   download "${VERSIONS_SIG}" "${tmpdir}/versions.json.sig"
-  download "${PUBKEY_URL}" "${tmpdir}/signing_public_key.b64"
   download "${VERIFY_PY}" "${tmpdir}/verify_signature.py"
+  printf '%s\n' "${EMBEDDED_SIGNING_PUBLIC_KEY_B64}" > "${tmpdir}/signing_public_key.b64"
 
   info "正在校验 versions.json 签名"
   verify_blob "${tmpdir}/versions.json" "${tmpdir}/versions.json.sig" \

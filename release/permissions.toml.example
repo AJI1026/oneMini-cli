@@ -1,0 +1,22 @@
+# 用户权限规则（复制到 ~/.config/onemini/permissions.toml）
+# 优先级：deny > ask > allow；托管规则优先于用户规则
+
+[[rules]]
+effect = "allow"
+tool = "bash"
+pattern = "cargo test *"
+
+[[rules]]
+effect = "allow"
+tool = "bash"
+pattern = "git status*"
+
+[[rules]]
+effect = "deny"
+tool = "bash"
+pattern = "git push *"
+
+[[rules]]
+effect = "ask"
+tool = "mcp_*"
+pattern = ""

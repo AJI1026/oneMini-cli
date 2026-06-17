@@ -34,7 +34,9 @@ impl SandboxConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SandboxBackend {
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Bubblewrap,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     SandboxExec,
     None,
 }

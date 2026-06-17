@@ -106,8 +106,63 @@ onemini "重构 config 模块，保持现有行为并通过 cargo test"
 - `/clear` 清空会话与任务状态
 - `/config` 查看配置
 - `/config setup` 重新配置 API / 模型
+- `/mode` 切换权限模式（default → plan → accept-edits → auto）
+- `/permissions` 查看权限规则摘要
 - `/help` 查看帮助
 - `/exit` 退出
+
+## 安全与权限
+
+### 权限模式
+
+| 模式 | CLI 参数 | 说明 |
+|------|----------|------|
+| default | （默认） | 变更类工具需确认 |
+| plan | `--permission-mode plan` | 只读：仅 read / grep / glob |
+| accept-edits | `--permission-mode accept-edits` | 工作区内 write/edit 与安全 bash（mkdir/mv/cp 等）自动放行 |
+| auto | `--permission-mode auto` | 启发式分类器自动判断 |
+| dont-ask | `--permission-mode dont-ask` | 未匹配 allow 规则则拒绝 |
+| bypass | `--dangerously-skip-permissions` | 跳过确认（仅隔离环境） |
+
+交互模式中用 `/mode` 在 default / plan / accept-edits / auto 间循环；用 `/permissions` 查看当前规则。
+
+非交互一次性任务：`-y` / `--yes` 仅允许已匹配 **allow** 规则的操作，不会全局 bypass。
+
+### 配置文件
+
+| 文件 | 路径 |
+|------|------|
+| 应用配置 | `~/.config/onemini/config.toml`（macOS 为 `~/Library/Application Support/onemini/`） |
+| 用户权限规则 | `permissions.toml` |
+| 用户 Hooks | `hooks.toml` |
+| 托管策略 | macOS `/Library/Application Support/onemini/managed.toml`；Linux `/etc/onemini/managed.toml` |
+| 加密会话 | `latest.json.enc` |
+
+示例见 [`release/permissions.toml.example`](release/permissions.toml.example)、[`release/managed.toml.example`](release/managed.toml.example)。
+
+### API 密钥
+
+- 保存配置时优先写入系统钥匙串（`keychain` feature，默认开启），`config.toml` 中为占位符
+- `base_url` 必须为 **HTTPS**
+- 敏感配置文件权限为 **0600**
+
+### OS 沙箱（bash）
+
+默认 `sandbox.enabled = true`。bash 在沙箱内执行：
+
+- **Linux**：需安装 `bubblewrap`（`bwrap`）
+- **macOS**：使用 `sandbox-exec`
+- 无可用沙箱后端时 **拒绝执行 bash**（可在 `config.toml` 中设 `sandbox.enabled = false` 降级，不推荐）
+
+沙箱内 bash 在默认配置下可免人工确认（沙箱边界替代确认）。注意：当前 bwrap 为便捷模式（只读挂载根文件系统），非最小权限沙箱。
+
+### 子 Agent 隔离
+
+- 委派任务默认只读工具；`--worktree-delegate` 或 `delegate_use_worktree = true` 时使用 git worktree 隔离目录
+
+### 托管策略（本地文件）
+
+通过 `managed.toml` 可禁用 bypass / auto、下发 deny 规则与企业 Hooks（**非远程轮询**）。环境变量 `ONEMINI_MANAGED_SETTINGS` 可指定路径。
 
 ## 常用 CLI 参数
 
@@ -119,7 +174,10 @@ Options:
       --resume                            恢复上次会话
   -p, --print <PROMPT>                    一次性任务（执行后退出）
       --max-rounds <N>                    最大工具调用轮次
-      --dangerously-skip-permissions      跳过权限确认（仅脚本）
+      --permission-mode <MODE>              default|plan|accept-edits|auto|dont-ask
+  -y, --yes                               非交互：仅 allow 规则可过
+      --worktree-delegate                 子 Agent 使用 git worktree
+      --dangerously-skip-permissions      跳过权限确认（仅隔离环境）
 
 Commands:
   chat      交互式会话（默认）
@@ -276,7 +334,7 @@ git push origin v0.1.1
 | 措施 | 说明 |
 |------|------|
 | HTTPS only | 所有下载 URL 必须为 `https://`；客户端强制 TLS 1.2+，禁止 HTTP 回退 |
-| Ed25519 签名 | 每个 Release 产物附带 `.sig`；CLI 内置公钥（`release/signing_public_key.b64`），下载后自动验签，失败则拒绝安装 |
+| Ed25519 签名 | 每个 Release 产物附带 `.sig`；CLI 与 install 脚本**内置公钥**，下载后自动验签，失败则拒绝安装 |
 | 索引防篡改 | `release/versions.json` 由维护者签名（`versions.json.sig`）；CLI 先验索引再使用其中的 URL |
 | 弃用策略 | 在 `versions.json` 中标记 `"deprecated": true`；CLI 默认拦截，需 `--ignore-deprecated` 才允许安装 |
 

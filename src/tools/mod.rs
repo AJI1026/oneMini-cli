@@ -67,10 +67,6 @@ impl ToolRegistry {
         self.tools.extend(extra.iter().cloned());
     }
 
-    pub fn definitions(&self) -> Vec<ToolDefinition> {
-        self.definitions_for_mode(PermissionMode::Default)
-    }
-
     pub fn definitions_for_mode(&self, mode: PermissionMode) -> Vec<ToolDefinition> {
         if mode.is_readonly() {
             return self

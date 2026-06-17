@@ -2,7 +2,11 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
-use std::process::Command;
+use std::process::{Command, Output};
+use std::sync::mpsc;
+use std::time::Duration;
+
+const HOOK_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookDef {
@@ -22,12 +26,12 @@ pub struct HookConfig {
 pub enum HookOutcome {
     Continue,
     Deny(String),
+    Ask(String),
     Modified(Value),
 }
 
 pub struct HookRunner {
-    user_config: HookConfig,
-    managed_hooks_only: bool,
+    hooks: Vec<HookDef>,
     fail_open: bool,
 }
 
@@ -41,9 +45,14 @@ impl HookRunner {
         } else {
             HookConfig::default()
         };
+
+        let mut hooks = managed.hooks.hooks.clone();
+        if !managed.allow_managed_hooks_only {
+            hooks.extend(user_config.hooks);
+        }
+
         Ok(Self {
-            user_config,
-            managed_hooks_only: managed.allow_managed_hooks_only,
+            hooks,
             fail_open: managed.hook_fail_open,
         })
     }
@@ -58,7 +67,7 @@ impl HookRunner {
             obj.insert("_result".into(), Value::String(result.to_string()));
         }
         match self.run_matching("PostToolUse", Some(tool), &enriched) {
-            Ok(HookOutcome::Continue) => Ok(()),
+            Ok(HookOutcome::Continue) | Ok(HookOutcome::Ask(_)) => Ok(()),
             Ok(HookOutcome::Deny(reason)) => anyhow::bail!("PostToolUse hook 拒绝: {reason}"),
             Ok(HookOutcome::Modified(_)) => Ok(()),
             Err(e) => {
@@ -79,7 +88,7 @@ impl HookRunner {
 
     fn run_matching(&self, event: &str, tool: Option<&str>, args: &Value) -> Result<HookOutcome> {
         let mut current_args = args.clone();
-        for hook in &self.user_config.hooks {
+        for hook in &self.hooks {
             if hook.event != event {
                 continue;
             }
@@ -90,6 +99,7 @@ impl HookRunner {
             }
             match self.execute_hook(&hook.command, &current_args)? {
                 HookOutcome::Deny(reason) => return Ok(HookOutcome::Deny(reason)),
+                HookOutcome::Ask(reason) => return Ok(HookOutcome::Ask(reason)),
                 HookOutcome::Modified(v) => current_args = v,
                 HookOutcome::Continue => {}
             }
@@ -103,57 +113,152 @@ impl HookRunner {
 
     fn execute_hook(&self, command: &str, args: &Value) -> Result<HookOutcome> {
         let args_json = args.to_string();
+        match run_command_with_timeout(command, &args_json, HOOK_TIMEOUT_SECS) {
+            Ok(output) => parse_hook_output(command, &output, self.fail_open),
+            Err(e) => {
+                if self.fail_open {
+                    Ok(HookOutcome::Continue)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+}
+
+fn run_command_with_timeout(
+    command: &str,
+    args_json: &str,
+    timeout_secs: u64,
+) -> Result<Output> {
+    let (tx, rx) = mpsc::channel();
+    let command_owned = command.to_string();
+    let command_for_err = command_owned.clone();
+    let args_json = args_json.to_string();
+    std::thread::spawn(move || {
         let output = if cfg!(target_os = "windows") {
             Command::new("cmd")
-                .args(["/C", command])
+                .args(["/C", &command_owned])
                 .env("ONEMINI_HOOK_ARGS", &args_json)
                 .output()
         } else {
             Command::new("sh")
-                .args(["-c", command])
+                .args(["-c", &command_owned])
                 .env("ONEMINI_HOOK_ARGS", &args_json)
                 .output()
+        };
+        let _ = tx.send(output);
+    });
+
+    match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(e)) => Err(e).with_context(|| format!("执行 hook 失败: {command_for_err}")),
+        Err(_) => Err(anyhow::anyhow!(
+            "hook 执行超时（>{timeout_secs}s）: {command_for_err}"
+        )),
+    }
+}
+
+pub(crate) fn parse_hook_output(
+    command: &str,
+    output: &Output,
+    fail_open: bool,
+) -> Result<HookOutcome> {
+    let code = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if code == 2 {
+        let reason = if stdout.is_empty() {
+            format!("hook 退出码 2: {command}")
+        } else {
+            stdout.clone()
+        };
+        return Ok(HookOutcome::Deny(reason));
+    }
+
+    if code != 0 {
+        if fail_open {
+            return Ok(HookOutcome::Continue);
         }
-        .with_context(|| format!("执行 hook 失败: {command}"))?;
+        anyhow::bail!(
+            "hook 退出码 {code}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
-        let code = output.status.code().unwrap_or(-1);
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if let Some(outcome) = parse_hook_stdout_json(&stdout) {
+        return Ok(outcome);
+    }
 
-        if code == 2 {
-            let reason = if stdout.is_empty() {
-                format!("hook 退出码 2: {command}")
-            } else {
-                stdout.clone()
-            };
-            return Ok(HookOutcome::Deny(reason));
-        }
+    Ok(HookOutcome::Continue)
+}
 
-        if code != 0 {
-            if self.fail_open {
-                return Ok(HookOutcome::Continue);
-            }
-            anyhow::bail!("hook 退出码 {code}: {}", String::from_utf8_lossy(&output.stderr));
-        }
+pub(crate) fn parse_hook_stdout_json(stdout: &str) -> Option<HookOutcome> {
+    let v: Value = serde_json::from_str(stdout).ok()?;
+    if let Some(decision) = v.get("decision").and_then(|d| d.as_str()) {
+        return Some(match decision {
+            "deny" => HookOutcome::Deny(
+                v.get("reason")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("hook 拒绝")
+                    .into(),
+            ),
+            "ask" => HookOutcome::Ask(
+                v.get("reason")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("hook 要求确认")
+                    .into(),
+            ),
+            "allow" => HookOutcome::Continue,
+            _ => HookOutcome::Continue,
+        });
+    }
+    if let Some(modified) = v.get("modified_input") {
+        return Some(HookOutcome::Modified(modified.clone()));
+    }
+    None
+}
 
-        if let Ok(v) = serde_json::from_str::<Value>(&stdout) {
-            if let Some(decision) = v.get("decision").and_then(|d| d.as_str()) {
-                return match decision {
-                    "deny" => Ok(HookOutcome::Deny(
-                        v.get("reason")
-                            .and_then(|r| r.as_str())
-                            .unwrap_or("hook 拒绝")
-                            .into(),
-                    )),
-                    "allow" => Ok(HookOutcome::Continue),
-                    "ask" => Ok(HookOutcome::Continue),
-                    _ => Ok(HookOutcome::Continue),
-                };
-            }
-            if let Some(modified) = v.get("modified_input") {
-                return Ok(HookOutcome::Modified(modified.clone()));
-            }
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Output;
+    use std::process::ExitStatus;
 
-        Ok(HookOutcome::Continue)
+    #[test]
+    fn parse_ask_decision() {
+        let out = parse_hook_stdout_json(r#"{"decision":"ask","reason":"需要人工确认"}"#);
+        assert!(matches!(out, Some(HookOutcome::Ask(_))));
+    }
+
+    #[test]
+    fn parse_deny_decision() {
+        let out = parse_hook_stdout_json(r#"{"decision":"deny","reason":"blocked"}"#);
+        assert!(matches!(out, Some(HookOutcome::Deny(_))));
+    }
+
+    #[test]
+    fn parse_modified_input() {
+        let out = parse_hook_stdout_json(r#"{"modified_input":{"path":"foo"}}"#);
+        assert!(matches!(out, Some(HookOutcome::Modified(_))));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn exit_code_2_is_deny() {
+        #[cfg(unix)]
+        let status = {
+            use std::os::unix::process::ExitStatusExt;
+            ExitStatus::from_raw(2 << 8)
+        };
+        #[cfg(not(unix))]
+        let status = ExitStatus::default();
+        let output = Output {
+            status,
+            stdout: b"reason".to_vec(),
+            stderr: vec![],
+        };
+        let outcome = parse_hook_output("test", &output, false).unwrap();
+        assert!(matches!(outcome, HookOutcome::Deny(_)));
     }
 }

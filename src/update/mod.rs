@@ -2,7 +2,7 @@ mod index;
 mod security;
 
 use anyhow::{bail, Context, Result};
-use index::{asset_sig_url, normalize_version_key, VersionsIndex};
+use index::{asset_sig_url, VersionsIndex};
 use semver::Version;
 use security::{download_and_verify, secure_http_client, VERSIONS_INDEX_URL, VERSIONS_SIG_URL};
 use std::path::{Path, PathBuf};
@@ -226,6 +226,7 @@ fn tempfile_dir() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::update::index::normalize_version_key;
 
     #[test]
     fn semver_patch_bump() {

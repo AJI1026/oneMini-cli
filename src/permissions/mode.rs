@@ -23,11 +23,17 @@ impl PermissionMode {
         }
     }
 
-    pub fn cycle_next(self) -> Self {
+    pub fn cycle_next(self, disable_auto: bool) -> Self {
         match self {
             Self::Default => Self::Plan,
             Self::Plan => Self::AcceptEdits,
-            Self::AcceptEdits => Self::Auto,
+            Self::AcceptEdits => {
+                if disable_auto {
+                    Self::Default
+                } else {
+                    Self::Auto
+                }
+            }
             Self::Auto => Self::Default,
             Self::DontAsk => Self::Default,
             Self::Bypass => Self::Bypass,

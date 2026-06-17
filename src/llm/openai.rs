@@ -68,9 +68,7 @@ impl OpenAiClient {
         crate::fs_util::ensure_https_url(&base_url)?;
 
         Ok(Self {
-            client: Client::builder()
-                .timeout(std::time::Duration::from_secs(300))
-                .build()?,
+            client: crate::fs_util::secure_http_client("onemini-cli", 300)?,
             base_url,
             api_key,
             config: config.clone(),

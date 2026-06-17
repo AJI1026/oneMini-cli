@@ -40,4 +40,12 @@ mod tests {
             Some(CircuitBreaker::HardDeny)
         );
     }
+
+    #[test]
+    fn force_ask_on_rm_dot() {
+        assert_eq!(
+            check_circuit_breaker("bash", "rm -rf ."),
+            Some(CircuitBreaker::ForceAsk)
+        );
+    }
 }

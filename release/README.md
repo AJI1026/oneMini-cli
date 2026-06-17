@@ -53,6 +53,7 @@ CLI 默认拒绝安装；用户需添加 `--ignore-deprecated`（或 `ONEMINI_IG
 
 ## 安全策略摘要
 
+- **公钥锚定**：`onemini update` 与 `scripts/install.sh` / `install.ps1` **内置** `signing_public_key.b64`，安装时不再从网络下载公钥（镜像无法替换信任根）
 - **HTTPS only**：所有 URL 必须为 `https://`，客户端启用 TLS 1.2+，禁止 HTTP 回退
 - **签名校验优先**：SHA256 仅作辅助；安装前必须验证 `.sig`（Ed25519 over SHA256 digest）
 - **索引防篡改**：先验证 `versions.json.sig`，再信任其中的 URL

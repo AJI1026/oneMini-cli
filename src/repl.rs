@@ -107,6 +107,7 @@ impl Repl {
                       /config        显示当前配置\n\
                       /config setup  重新配置 API / 模型\n\
                       /mode     切换权限模式\n\
+                      /permissions  查看权限规则摘要\n\
                       /exit     退出\n{}",
                     ui::section_title("可用命令"),
                     self.slash.format_help()
@@ -131,12 +132,18 @@ impl Repl {
                 Err(e) => println!("{}", ui::error(&e.to_string())),
             },
             Some("/mode") => {
-                let next = self.session.permission_mode().cycle_next();
+                let next = self
+                    .session
+                    .permission_mode()
+                    .cycle_next(self.session.disable_auto_mode());
                 self.session.set_permission_mode(next);
                 println!(
                     "{}",
                     ui::success(&format!("权限模式已切换为: {}", next.label()))
                 );
+            }
+            Some("/permissions") => {
+                println!("\n{}", self.session.permissions_summary());
             }
             Some("/rollback") => match self.session.rollback_git() {
                 Ok(hash) => println!(
