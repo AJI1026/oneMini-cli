@@ -1,5 +1,6 @@
 mod markdown;
 mod plan;
+mod repl_helper;
 mod stream;
 mod theme;
 
@@ -7,6 +8,7 @@ use colored::Colorize;
 
 pub use markdown::render_markdown;
 pub use plan::render_plan_text;
+pub use repl_helper::{colored_input_prompt, input_prompt_plain, ReplHelper};
 pub use stream::{print_diff_preview, print_usage_line, StreamRenderer};
 
 const LOGO_ART: &str = r"        .=====:
@@ -100,7 +102,7 @@ pub fn assistant_prefix() -> String {
 }
 
 pub fn user_prefix() -> String {
-    theme::accent("你")
+    theme::accent("You")
 }
 
 pub fn dim(text: &str) -> String {

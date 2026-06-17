@@ -2,22 +2,22 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use std::process::Stdio;
-use tokio::process::Command;
 use tokio::time::{timeout, Duration};
 
 use super::{truncate_output, Tool};
+use crate::sandbox::SandboxRunner;
 
 const TIMEOUT_SECS: u64 = 120;
 const PREVIEW_CHARS: usize = 1200;
 
 pub struct BashTool {
     workdir: PathBuf,
+    sandbox: SandboxRunner,
 }
 
 impl BashTool {
-    pub fn new(workdir: PathBuf) -> Self {
-        Self { workdir }
+    pub fn new(workdir: PathBuf, sandbox: SandboxRunner) -> Self {
+        Self { workdir, sandbox }
     }
 }
 
@@ -40,7 +40,7 @@ impl Tool for BashTool {
     }
 
     fn description(&self) -> &str {
-        "在工作目录下执行 shell 命令。返回结构化 JSON（exit_code、stdout/stderr 摘要、失败原因、重试建议）。超时 120 秒。"
+        "在工作目录下执行 shell 命令（OS 沙箱内）。返回结构化 JSON。超时 120 秒。"
     }
 
     fn parameters_schema(&self) -> Value {
@@ -62,14 +62,13 @@ impl Tool for BashTool {
             .as_str()
             .context("缺少 command（命令）参数")?;
 
-        let child = Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .current_dir(&self.workdir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("启动 shell 失败")?;
+        self.sandbox.ensure_available()?;
+
+        let child = self
+            .sandbox
+            .exec(command, &self.workdir)
+            .await
+            .context("启动沙箱 shell 失败")?;
 
         let timed_out = match timeout(Duration::from_secs(TIMEOUT_SECS), child.wait_with_output()).await
         {

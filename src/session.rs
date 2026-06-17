@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 
 use crate::agent::TaskState;
 use crate::llm::ChatMessage;
+use crate::session_crypto;
 
-const SESSION_FILE: &str = "latest.json";
-const MAX_MESSAGES: usize = 80;
+const SESSION_FILE_PLAIN: &str = "latest.json";
+const SESSION_FILE_ENC: &str = "latest.json.enc";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedSession {
@@ -20,7 +21,8 @@ pub struct PersistedSession {
 }
 
 pub struct SessionStore {
-    path: PathBuf,
+    enc_path: PathBuf,
+    plain_path: PathBuf,
 }
 
 impl SessionStore {
@@ -28,18 +30,28 @@ impl SessionStore {
         let dir = crate::config::Config::config_dir()?;
         fs::create_dir_all(&dir)?;
         Ok(Self {
-            path: dir.join(SESSION_FILE),
+            enc_path: dir.join(SESSION_FILE_ENC),
+            plain_path: dir.join(SESSION_FILE_PLAIN),
         })
     }
 
     pub fn load(&self) -> Result<Option<PersistedSession>> {
-        if !self.path.exists() {
-            return Ok(None);
+        if self.enc_path.exists() {
+            let bytes = session_crypto::read_encrypted(&self.enc_path)?;
+            let session: PersistedSession =
+                serde_json::from_slice(&bytes).context("解析加密会话失败")?;
+            return Ok(Some(session));
         }
-        let text = fs::read_to_string(&self.path)
-            .with_context(|| format!("读取会话失败: {}", self.path.display()))?;
-        let session: PersistedSession = serde_json::from_str(&text).context("解析会话失败")?;
-        Ok(Some(session))
+        if self.plain_path.exists() {
+            let text = fs::read_to_string(&self.plain_path)
+                .with_context(|| format!("读取会话失败: {}", self.plain_path.display()))?;
+            let session: PersistedSession = serde_json::from_str(&text).context("解析会话失败")?;
+            // 迁移到加密存储
+            self.save_inner(&session)?;
+            let _ = fs::remove_file(&self.plain_path);
+            return Ok(Some(session));
+        }
+        Ok(None)
     }
 
     pub fn save(
@@ -57,21 +69,31 @@ impl SessionStore {
             session_usage: session_usage.clone(),
             updated_at: chrono_lite_now(),
         };
-        let text = serde_json::to_string_pretty(&session).context("序列化会话失败")?;
-        fs::write(&self.path, text)
-            .with_context(|| format!("写入会话失败: {}", self.path.display()))?;
+        self.save_inner(&session)
+    }
+
+    fn save_inner(&self, session: &PersistedSession) -> Result<()> {
+        let text = serde_json::to_string_pretty(session).context("序列化会话失败")?;
+        session_crypto::write_encrypted(&self.enc_path, text.as_bytes())?;
+        if self.plain_path.exists() {
+            let _ = fs::remove_file(&self.plain_path);
+        }
         Ok(())
     }
 
     pub fn clear(&self) -> Result<()> {
-        if self.path.exists() {
-            fs::remove_file(&self.path)?;
+        if self.enc_path.exists() {
+            fs::remove_file(&self.enc_path)?;
+        }
+        if self.plain_path.exists() {
+            fs::remove_file(&self.plain_path)?;
         }
         Ok(())
     }
 }
 
 fn trim_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
+    const MAX_MESSAGES: usize = 80;
     if messages.len() <= MAX_MESSAGES {
         return messages.to_vec();
     }

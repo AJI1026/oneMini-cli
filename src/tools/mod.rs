@@ -9,10 +9,11 @@ mod write;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::llm::ToolDefinition;
+use crate::permissions::PermissionMode;
 
 pub use bash::BashTool;
 pub use delegate::DelegateTool;
@@ -46,14 +47,14 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
-    pub fn new(workdir: PathBuf) -> Self {
+    pub fn new(workdir: PathBuf, sandbox: crate::sandbox::SandboxRunner) -> Self {
         let tools: Vec<Arc<dyn Tool>> = vec![
             Arc::new(ReadTool::new(workdir.clone())),
             Arc::new(WriteTool::new(workdir.clone())),
             Arc::new(EditTool::new(workdir.clone())),
             Arc::new(GrepTool::new(workdir.clone())),
             Arc::new(GlobTool::new(workdir.clone())),
-            Arc::new(BashTool::new(workdir.clone())),
+            Arc::new(BashTool::new(workdir.clone(), sandbox)),
         ];
         Self { tools }
     }
@@ -67,6 +68,18 @@ impl ToolRegistry {
     }
 
     pub fn definitions(&self) -> Vec<ToolDefinition> {
+        self.definitions_for_mode(PermissionMode::Default)
+    }
+
+    pub fn definitions_for_mode(&self, mode: PermissionMode) -> Vec<ToolDefinition> {
+        if mode.is_readonly() {
+            return self
+                .tools
+                .iter()
+                .filter(|t| matches!(t.name(), "read" | "grep" | "glob"))
+                .map(|t| t.definition())
+                .collect();
+        }
         self.tools.iter().map(|t| t.definition()).collect()
     }
 
@@ -76,7 +89,7 @@ impl ToolRegistry {
 }
 
 /// 将用户路径解析为工作目录内的绝对路径，拒绝越界访问。
-pub fn resolve_path(workdir: &Path, user_path: &str) -> Result<PathBuf> {
+pub fn resolve_path(workdir: &std::path::Path, user_path: &str) -> Result<PathBuf> {
     let path = PathBuf::from(user_path);
     let resolved = if path.is_absolute() {
         path

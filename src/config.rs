@@ -115,6 +115,10 @@ pub struct Config {
     pub auto_git_checkpoint: Option<bool>,
     #[serde(default)]
     pub mcp_servers: Vec<crate::mcp::McpServerConfig>,
+    #[serde(default)]
+    pub sandbox: crate::sandbox::SandboxConfig,
+    #[serde(default)]
+    pub delegate_use_worktree: Option<bool>,
     #[serde(skip)]
     pub workdir: Option<PathBuf>,
 }
@@ -130,6 +134,14 @@ impl Default for Config {
             show_reasoning: Some(true),
             auto_git_checkpoint: Some(true),
             mcp_servers: Vec::new(),
+            sandbox: crate::sandbox::SandboxConfig {
+                enabled: true,
+                allow_network: false,
+                auto_allow_sandboxed_bash: true,
+                extra_read_paths: Vec::new(),
+                extra_write_paths: Vec::new(),
+            },
+            delegate_use_worktree: None,
             workdir: None,
         }
     }
@@ -148,47 +160,7 @@ impl Config {
         Ok(Self::config_dir()?.join("config.toml"))
     }
 
-    fn resolve_onemini_env() -> String {
-        let raw = std::env::var("ONEMINI_ENV").unwrap_or_else(|_| "development".to_string());
-        let lower = raw.trim().to_lowercase();
-        match lower.as_str() {
-            "development" | "staging" | "production" => lower,
-            _ => "development".to_string(),
-        }
-    }
-
-    fn load_env_files() {
-        let env = Self::resolve_onemini_env();
-        let names = [format!(".env.{env}"), format!(".env.{env}.local")];
-
-        let mut dirs: Vec<PathBuf> = Vec::new();
-        if let Ok(cwd) = std::env::current_dir() {
-            dirs.push(cwd);
-        }
-        if let Ok(user_dir) = Self::config_dir() {
-            dirs.push(user_dir);
-        }
-
-        for dir in dirs {
-            for (index, name) in names.iter().enumerate() {
-                let path = dir.join(name);
-                if !path.is_file() {
-                    continue;
-                }
-                let result = if index == 0 {
-                    dotenvy::from_filename(&path)
-                } else {
-                    dotenvy::from_filename_override(&path)
-                };
-                if let Err(err) = result {
-                    eprintln!("警告: 加载 {} 失败: {err}", path.display());
-                }
-            }
-        }
-    }
-
     pub fn load() -> Result<Self> {
-        Self::load_env_files();
         let path = Self::config_path()?;
         if path.exists() {
             let text = fs::read_to_string(&path)
@@ -209,6 +181,10 @@ impl Config {
             if cfg.model.is_none() {
                 cfg.model = Config::default().model;
             }
+            cfg.resolve_api_key()?;
+            if let Some(ref url) = cfg.base_url {
+                crate::fs_util::ensure_https_url(url)?;
+            }
             Ok(cfg)
         } else {
             Ok(Config::default())
@@ -219,17 +195,46 @@ impl Config {
         let path = Self::config_path()?;
         let mut to_save = self.clone();
         to_save.workdir = None;
+
+        if let Some(ref key) = to_save.api_key {
+            if !key.is_empty() && !crate::session_crypto::is_keychain_placeholder(key) {
+                if crate::session_crypto::store_api_key_in_keychain(key).is_ok() {
+                    to_save.api_key = Some(crate::session_crypto::API_KEY_KEYCHAIN_PLACEHOLDER.into());
+                }
+            }
+        }
+
         let text = toml::to_string_pretty(&to_save).context("序列化配置失败")?;
-        fs::write(&path, text)
-            .with_context(|| format!("写入配置失败: {}", path.display()))?;
+        crate::fs_util::write_private(&path, text)?;
         Ok(path)
     }
 
-    pub fn apply_patch(&mut self, patch: &ConfigPatch) {
+    fn resolve_api_key(&mut self) -> Result<()> {
+        if self
+            .api_key
+            .as_deref()
+            .is_some_and(crate::session_crypto::is_keychain_placeholder)
+        {
+            match crate::session_crypto::load_api_key_from_keychain() {
+                Ok(key) => self.api_key = Some(key),
+                Err(e) => {
+                    anyhow::bail!("config.toml 使用钥匙串存储 API 密钥，但读取失败: {e}");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn delegate_use_worktree(&self) -> bool {
+        self.delegate_use_worktree.unwrap_or(false)
+    }
+
+    pub fn apply_patch(&mut self, patch: &ConfigPatch) -> Result<()> {
         if let Some(ref k) = patch.api_key {
             self.api_key = Some(k.clone());
         }
         if let Some(ref u) = patch.base_url {
+            crate::fs_util::ensure_https_url(u)?;
             self.base_url = Some(u.clone());
         }
         if let Some(ref m) = patch.model {
@@ -241,6 +246,7 @@ impl Config {
         if let Some(n) = patch.max_tokens {
             self.max_tokens = Some(n);
         }
+        Ok(())
     }
 
     /// 终端交互式配置：选择服务商 → 输入模型 / Base URL → 输入 API Key
@@ -305,6 +311,7 @@ impl Config {
         if base_url.trim().is_empty() {
             bail!("API 接口地址不能为空");
         }
+        crate::fs_util::ensure_https_url(base_url.trim())?;
         cfg.base_url = Some(base_url.trim().to_string());
 
         // 3. 模型 ID

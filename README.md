@@ -76,20 +76,7 @@ onemini config set --api-key "sk-..." --base-url "https://api.deepseek.com" --mo
 - macOS: `~/Library/Application Support/onemini/config.toml`
 - Linux: `~/.config/onemini/config.toml`
 
-**按环境注入（与 api / web / admin 对齐）**
-
-| 环境 | `ONEMINI_ENV` | 本地文件 |
-|------|---------------|----------|
-| 开发 | `development` | `.env.development` |
-| 预发 | `staging` | `.env.staging` |
-| 生产 | `production` | `.env.production` |
-
-```bash
-cp .env.example .env.development   # 首次配置
-ONEMINI_ENV=staging onemini        # 加载 .env.staging
-```
-
-CLI 会按 `ONEMINI_ENV` 从**当前项目目录**与**用户配置目录**加载 `.env.{env}` / `.env.{env}.local`；环境变量与 CLI 参数仍覆盖 `config.toml`。与 [oneMini-api](../oneMini-api/) 变量对应：`ONEMINI_API_KEY` ↔ `OPENAI_API_KEY`，`ONEMINI_BASE_URL` ↔ `OPENAI_BASE_URL`，`ONEMINI_MODEL` ↔ `CHAT_MODEL`。
+也可通过环境变量或命令行参数临时覆盖配置（如 `ONEMINI_API_KEY`、`--api-key`），无需 `.env` 文件。
 
 ### 4. 开始协作
 

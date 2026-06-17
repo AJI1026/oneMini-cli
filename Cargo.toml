@@ -14,15 +14,23 @@ path = "src/main.rs"
 name = "onemini-sign"
 path = "tools/sign-blob/main.rs"
 
+[features]
+default = ["keychain"]
+keychain = ["dep:keyring"]
+
 [dependencies]
 anyhow = "1"
+aes-gcm = "0.10"
+getrandom = "0.2"
+hostname = "0.4"
+whoami = "1"
+keyring = { version = "3", optional = true }
 async-stream = "0.3"
 async-trait = "0.1"
 clap = { version = "4", features = ["derive", "env"] }
 colored = "2"
 dialoguer = "0.11"
 dirs = "5"
-dotenvy = "0.15"
 futures = "0.3"
 glob = "0.3"
 pulldown-cmark = "0.13"

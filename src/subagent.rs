@@ -4,17 +4,32 @@ use std::path::PathBuf;
 
 use crate::config::Config;
 use crate::llm::{ChatMessage, OpenAiClient, ToolCall};
+use crate::sandbox::SandboxRunner;
 use crate::tools::ToolRegistry;
+use crate::worktree::GitWorktree;
 
 const MAX_SUBAGENT_ROUNDS: u32 = 8;
 
 /// 运行独立子任务（只读工具自动批准）。
 pub async fn run_subtask(workdir: PathBuf, prompt: &str) -> Result<String> {
+    run_subtask_inner(workdir, prompt).await
+}
+
+/// 在 git worktree 隔离目录中运行只读子任务。
+pub async fn run_subtask_isolated(repo_root: PathBuf, prompt: &str) -> Result<String> {
+    let wt = GitWorktree::create(&repo_root, "delegate")?;
+    let result = run_subtask_inner(wt.path.clone(), prompt).await;
+    let _ = wt.remove();
+    result
+}
+
+async fn run_subtask_inner(workdir: PathBuf, prompt: &str) -> Result<String> {
     let mut config = Config::load()?;
     config.workdir = Some(workdir.clone());
 
     let client = OpenAiClient::new(&config)?;
-    let registry = ToolRegistry::new(workdir.clone());
+    let sandbox = SandboxRunner::new(&config.sandbox);
+    let registry = ToolRegistry::new(workdir.clone(), sandbox);
 
     let system = format!(
         "你是 OneMini 子 Agent，专注完成单一子任务。\n\

@@ -2,9 +2,12 @@ use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use std::io::{stdin, IsTerminal};
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use crate::agent::{run_agent, AgentOptions};
 use crate::config::{Config, ConfigPatch, ConfigureOptions};
+use crate::managed::ManagedSettings;
+use crate::permissions::PermissionMode;
 use crate::repl::Repl;
 use crate::ui;
 
@@ -34,15 +37,10 @@ pub const AFTER_LONG_HELP: &str = "\
   /compact  压缩历史消息      /clear    清空会话
   /config   查看配置          /exit     退出
 
-环境变量:
-  ONEMINI_ENV          环境标识：development | staging | production（默认 development）
+环境变量（可覆盖 config.toml）:
   ONEMINI_API_KEY      API 密钥
   ONEMINI_BASE_URL     API 接口地址（OpenAI 兼容）
-  ONEMINI_MODEL        模型名称
-
-环境文件（按 ONEMINI_ENV 加载，勿提交 Git）:
-  .env.development / .env.staging / .env.production
-  可复制 .env.example 为对应文件；用户目录 ~/.config/onemini/ 下同名文件亦可";
+  ONEMINI_MODEL        模型名称";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -85,8 +83,20 @@ pub struct Cli {
     pub max_rounds: u32,
 
     /// 自动批准所有工具操作（危险，仅用于 CI/脚本）
-    #[arg(long)]
+    #[arg(long, conflicts_with = "permission_mode")]
     pub dangerously_skip_permissions: bool,
+
+    /// 权限模式：default | plan | accept-edits | auto | dont-ask
+    #[arg(long, value_name = "MODE")]
+    pub permission_mode: Option<String>,
+
+    /// 非交互模式下仅允许已匹配 allow 规则的操作（不全局 bypass）
+    #[arg(short = 'y', long = "yes")]
+    pub yes: bool,
+
+    /// 子 Agent 委派使用 git worktree 隔离
+    #[arg(long)]
+    pub worktree_delegate: bool,
 
     /// 一次性任务输出 JSON（仅与 -p/--print 联用）
     #[arg(long)]
@@ -238,7 +248,7 @@ impl Cli {
                     );
                 }
                 let mut config = Config::load()?;
-                config.apply_patch(&patch);
+                config.apply_patch(&patch)?;
                 let path = config.save()?;
                 println!("{}", ui::success(&format!("配置已保存: {}", path.display())));
                 println!();
@@ -315,11 +325,27 @@ impl Cli {
         }
 
         let resume = self.resume || matches!(self.command, Some(Commands::Resume));
+
+        let managed = ManagedSettings::load()?;
+        if self.dangerously_skip_permissions && managed.disable_bypass_permissions {
+            bail!("托管策略已禁用 --dangerously-skip-permissions");
+        }
+
+        let permission_mode = if self.dangerously_skip_permissions {
+            PermissionMode::Bypass
+        } else if let Some(ref m) = self.permission_mode {
+            PermissionMode::from_str(m).map_err(anyhow::Error::msg)?
+        } else {
+            PermissionMode::Default
+        };
+
         let opts = AgentOptions {
             config,
             max_rounds: self.max_rounds,
-            auto_approve: self.dangerously_skip_permissions,
+            permission_mode,
+            non_interactive_yes: self.yes,
             resume,
+            worktree_delegate: self.worktree_delegate,
         };
 
         if let Some(prompt) = self.one_shot_prompt() {

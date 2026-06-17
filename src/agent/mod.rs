@@ -11,10 +11,12 @@ use std::sync::Arc;
 use crate::compress::{compress_messages, needs_compression};
 use crate::config::Config;
 use crate::git::GitManager;
-use crate::hooks::HookRunner;
+use crate::hooks::{HookOutcome, HookRunner};
 use crate::llm::{AssistantMessage, ChatMessage, OpenAiClient, StreamEvent, ToolCall, UsageInfo};
+use crate::managed::ManagedSettings;
 use crate::mcp::McpRegistry;
-use crate::permissions::{PermissionDecision, PermissionManager};
+use crate::permissions::{PermissionDecision, PermissionManager, PermissionMode};
+use crate::sandbox::{SandboxBackend, SandboxRunner};
 use crate::session::SessionStore;
 use crate::tools::{Tool, ToolRegistry};
 use crate::ui::{self, StreamRenderer};
@@ -27,8 +29,10 @@ pub use task::TaskState;
 pub struct AgentOptions {
     pub config: Config,
     pub max_rounds: u32,
-    pub auto_approve: bool,
+    pub permission_mode: PermissionMode,
+    pub non_interactive_yes: bool,
     pub resume: bool,
+    pub worktree_delegate: bool,
 }
 
 pub struct AgentSession {
@@ -42,6 +46,8 @@ pub struct AgentSession {
     permissions: PermissionManager,
     hooks: HookRunner,
     git: GitManager,
+    sandbox_runner: SandboxRunner,
+    managed_settings: ManagedSettings,
     had_tool_calls_this_turn: bool,
     last_turn_usage: UsageInfo,
 }
@@ -72,8 +78,14 @@ impl AgentSession {
         };
 
         let client = OpenAiClient::new(&opts.config)?;
-        let mut registry = ToolRegistry::new(workdir.clone());
-        registry.register(Arc::new(crate::tools::DelegateTool::new(workdir.clone())));
+        let sandbox_runner = SandboxRunner::new(&opts.config.sandbox);
+        let mut registry = ToolRegistry::new(workdir.clone(), sandbox_runner.clone());
+        registry.register(Arc::new(crate::tools::DelegateTool::new(
+            workdir.clone(),
+            opts.worktree_delegate || opts.config.delegate_use_worktree(),
+        )));
+
+        let managed_settings = ManagedSettings::load()?;
 
         if !opts.config.mcp_servers.is_empty() {
             match McpRegistry::connect_all(&opts.config.mcp_servers).await {
@@ -90,9 +102,11 @@ impl AgentSession {
             task_state,
             session_usage,
             session_store,
-            permissions: PermissionManager::load()?,
-            hooks: HookRunner::load()?,
+            permissions: PermissionManager::load(&managed_settings)?,
+            hooks: HookRunner::load(&managed_settings)?,
             git: GitManager::new(workdir),
+            sandbox_runner,
+            managed_settings,
             had_tool_calls_this_turn: false,
             last_turn_usage: UsageInfo::default(),
         })
@@ -105,6 +119,14 @@ impl AgentSession {
             TaskState::default(),
             SessionUsage::default(),
         )
+    }
+
+    pub fn permission_mode(&self) -> PermissionMode {
+        self.opts.permission_mode
+    }
+
+    pub fn set_permission_mode(&mut self, mode: PermissionMode) {
+        self.opts.permission_mode = mode;
     }
 
     pub fn reload_config(&mut self) -> Result<()> {
@@ -211,7 +233,10 @@ impl AgentSession {
                 anyhow::bail!("已达最大工具调用轮次 ({})", self.opts.max_rounds);
             }
 
-            let tools = Some(self.registry.definitions());
+            let tools = Some(
+                self.registry
+                    .definitions_for_mode(self.opts.permission_mode),
+            );
             let assistant = if stream {
                 self.run_stream_round(tools).await?
             } else {
@@ -337,32 +362,47 @@ impl AgentSession {
 
     async fn execute_tool_call(&mut self, call: &ToolCall, verbose: bool) -> Result<String> {
         let name = &call.function.name;
-        let args: Value = serde_json::from_str(&call.function.arguments)
+        let mut args: Value = serde_json::from_str(&call.function.arguments)
             .unwrap_or_else(|_| serde_json::json!({}));
+
+        if let Err(e) = validate_tool_input(name, &args) {
+            return Ok(format!("[工具输入无效] {e}"));
+        }
 
         let tool = self
             .registry
             .get(name)
             .with_context(|| format!("未知工具: {name}"))?;
 
+        match self.hooks.run_pre_tool(name, &args) {
+            Ok(HookOutcome::Deny(reason)) => {
+                return Ok(format!("[hook 拒绝] {reason}"));
+            }
+            Ok(HookOutcome::Modified(v)) => args = v,
+            Ok(HookOutcome::Continue) => {}
+            Err(e) => return Ok(format!("[hook 错误] {e}")),
+        }
+
         let detail = summarize_args(name, &args);
         if verbose {
             println!("{}", ui::tool_call(name, &detail));
         }
 
-        self.hooks.run_pre_tool(name, &args).ok();
-
         if self.maybe_git_checkpoint(name, &args, verbose)? {
             // checkpoint created
         }
 
-        if !self.check_permission(&tool, &detail, &args, verbose)? {
+        if !self.check_permission(&tool, name, &detail, &args, verbose)? {
             return Ok("[用户拒绝执行]".into());
         }
 
         match tool.execute(args.clone()).await {
             Ok(out) => {
-                self.hooks.run_post_tool(name, &args, &out).ok();
+                if let Err(e) = self.hooks.run_post_tool(name, &args, &out) {
+                    if verbose {
+                        println!("{}", ui::warn(&format!("PostToolUse hook: {e}")));
+                    }
+                }
                 self.track_tool_outcome(name, &args, &out);
                 if verbose {
                     println!("{}", ui::dim(&truncate_preview(&out, 200)));
@@ -371,7 +411,7 @@ impl AgentSession {
             }
             Err(e) => {
                 let err = format!("[工具错误] {e}");
-                self.hooks.run_post_tool(name, &args, &err).ok();
+                let _ = self.hooks.run_post_tool(name, &args, &err);
                 self.track_tool_error(name, &args, &err);
                 if verbose {
                     println!("{}", ui::error(&err));
@@ -414,36 +454,67 @@ impl AgentSession {
     fn check_permission(
         &mut self,
         tool: &Arc<dyn Tool>,
+        tool_name: &str,
         detail: &str,
         args: &Value,
         verbose: bool,
     ) -> Result<bool> {
-        let name = tool.name();
-        if self.opts.auto_approve {
-            return Ok(true);
+        let workdir = self.workdir().to_path_buf();
+        let mode = self.opts.permission_mode;
+        let bypass = mode == PermissionMode::Bypass;
+
+        if bypass && self.managed_settings.disable_bypass_permissions {
+            if verbose {
+                println!(
+                    "{}",
+                    ui::error("托管策略已禁用 bypass 权限模式")
+                );
+            }
+            return Ok(false);
         }
 
-        match self.permissions.evaluate(name, detail) {
-            PermissionDecision::Allow => return Ok(true),
+        let decision = self.permissions.evaluate(
+            tool_name,
+            detail,
+            args,
+            &workdir,
+            mode,
+            bypass,
+        );
+
+        match &decision {
             PermissionDecision::Deny(reason) => {
                 if verbose {
-                    println!("{}", ui::error(&reason));
+                    println!("{}", ui::error(reason));
                 }
                 return Ok(false);
             }
-            PermissionDecision::Ask(_) => {}
+            PermissionDecision::Allow => return Ok(true),
+            PermissionDecision::Ask(reason) => {
+                if !reason.is_empty() && verbose {
+                    println!("{}", ui::warn(reason));
+                }
+            }
+        }
+
+        if tool_name == "bash"
+            && self.sandbox_runner.is_enabled()
+            && self.sandbox_runner.auto_allow_sandboxed_bash()
+            && self.sandbox_runner.backend() != SandboxBackend::None
+        {
+            return Ok(true);
         }
 
         if !tool.requires_approval(args) {
             return Ok(true);
         }
 
-        let risk = assess_risk(name, args);
+        let risk = assess_risk(tool_name, args);
         if !risk.is_empty() && verbose {
             println!("{}", ui::warn(&risk));
         }
 
-        if matches!(name, "write" | "edit") {
+        if matches!(tool_name, "write" | "edit") {
             if let Some(path) = args["path"].as_str() {
                 if let Ok(diff) = self.git.diff_preview(&[path]) {
                     ui::print_diff_preview(&diff);
@@ -456,26 +527,38 @@ impl AgentSession {
             }
         }
 
-        if verbose {
-            print!("{} 允许执行? [y/是/N/a=始终允许] ", ui::warn("权限"));
-            io::stdout().flush()?;
-            let mut line = String::new();
-            io::stdin().read_line(&mut line)?;
-            let answer = line.trim().to_lowercase();
-            if answer == "a" || answer == "always" || answer == "始终" {
-                // 用户选择始终允许此工具 — 提示写入 permissions.toml
+        if !verbose {
+            if self.opts.non_interactive_yes {
+                return Ok(false);
+            }
+            return Ok(false);
+        }
+
+        print!("{} 允许执行? [y/是/N/a=始终允许] ", ui::warn("权限"));
+        io::stdout().flush()?;
+        let mut line = String::new();
+        io::stdin().read_line(&mut line)?;
+        let answer = line.trim().to_lowercase();
+        if answer == "a" || answer == "always" || answer == "始终" {
+            let pattern = if tool_name == "bash" {
+                detail.to_string()
+            } else {
+                args["path"].as_str().unwrap_or(detail).to_string()
+            };
+            if let Err(e) = self.permissions.add_allow_rule(tool_name, &pattern) {
+                println!("{}", ui::warn(&format!("无法保存权限规则: {e}")));
+            } else {
                 println!(
                     "{}",
-                    ui::dim(&format!(
-                        "提示: 可在 {} 的 always_allow（始终允许）中添加 \"{name}\"",
+                    ui::success(&format!(
+                        "已保存 allow 规则到 {}",
                         self.permissions.path().display()
                     ))
                 );
-                return Ok(true);
             }
-            return Ok(answer == "y" || answer == "yes" || answer == "是");
+            return Ok(true);
         }
-        Ok(false)
+        Ok(answer == "y" || answer == "yes" || answer == "是")
     }
 
     fn track_tool_outcome(&mut self, name: &str, args: &Value, out: &str) {
@@ -526,6 +609,38 @@ impl AgentSession {
 pub async fn run_agent(opts: &AgentOptions, prompt: &str, stream: bool) -> Result<String> {
     let mut session = AgentSession::new(opts.clone()).await?;
     session.run_turn(prompt, stream).await
+}
+
+fn validate_tool_input(name: &str, args: &Value) -> Result<()> {
+    match name {
+        "read" | "write" | "edit" => {
+            if args["path"].as_str().filter(|s| !s.is_empty()).is_none() {
+                anyhow::bail!("缺少 path 参数");
+            }
+        }
+        "bash" => {
+            if args["command"].as_str().filter(|s| !s.is_empty()).is_none() {
+                anyhow::bail!("缺少 command 参数");
+            }
+        }
+        "grep" => {
+            if args["pattern"].as_str().filter(|s| !s.is_empty()).is_none() {
+                anyhow::bail!("缺少 pattern 参数");
+            }
+        }
+        "glob" => {
+            if args["pattern"].as_str().filter(|s| !s.is_empty()).is_none() {
+                anyhow::bail!("缺少 pattern 参数");
+            }
+        }
+        "delegate" => {
+            if args["task"].as_str().filter(|s| !s.is_empty()).is_none() {
+                anyhow::bail!("缺少 task 参数");
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn parse_bash_result(out: &str) -> (bool, Option<String>) {

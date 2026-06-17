@@ -1,22 +1,24 @@
 use anyhow::Result;
 use rustyline::error::ReadlineError;
-use rustyline::DefaultEditor;
+use rustyline::history::DefaultHistory;
+use rustyline::Editor;
 
 use crate::agent::AgentOptions;
 use crate::agent::AgentSession;
 use crate::config::{Config, ConfigureOptions};
 use crate::slash::SlashRegistry;
-use crate::ui;
+use crate::ui::{self, ReplHelper};
 
 pub struct Repl {
-    editor: DefaultEditor,
+    editor: Editor<ReplHelper, DefaultHistory>,
     session: AgentSession,
     slash: SlashRegistry,
 }
 
 impl Repl {
     pub async fn new(opts: AgentOptions) -> Result<Self> {
-        let editor = DefaultEditor::new()?;
+        let mut editor = Editor::new()?;
+        editor.set_helper(Some(ReplHelper::new()));
         let workdir = opts.config.workdir().to_path_buf();
         let slash = SlashRegistry::load(&workdir)?;
         let session = AgentSession::new(opts).await?;
@@ -38,14 +40,20 @@ impl Repl {
         );
         println!(
             "{}",
-            ui::dim("交互模式 · 流式输出 · 输入 /help 查看命令")
+            ui::dim(&format!(
+                "权限模式: {} · 输入 /mode 切换",
+                self.session.permission_mode().label()
+            ))
         );
         println!("{}", ui::separator());
         println!();
 
         loop {
-            let prompt = format!("{} ", ui::user_prefix());
-            match self.editor.readline(&prompt) {
+            let prompt = ui::input_prompt_plain();
+            if let Some(helper) = self.editor.helper_mut() {
+                helper.colored_prompt = ui::colored_input_prompt();
+            }
+            match self.editor.readline(prompt) {
                 Ok(line) => {
                     let input = line.trim();
                     if input.is_empty() {
@@ -60,6 +68,7 @@ impl Repl {
                         continue;
                     }
 
+                    println!("{} {}", ui::user_prefix(), input);
                     match self.session.run_turn(input, true).await {
                         Ok(_) => println!(),
                         Err(e) => println!("{}\n", ui::error(&e.to_string())),
@@ -97,6 +106,7 @@ impl Repl {
                       /clear    清空对话历史\n\
                       /config        显示当前配置\n\
                       /config setup  重新配置 API / 模型\n\
+                      /mode     切换权限模式\n\
                       /exit     退出\n{}",
                     ui::section_title("可用命令"),
                     self.slash.format_help()
@@ -120,6 +130,14 @@ impl Repl {
                 Ok(()) => println!("{}", ui::success("历史消息已压缩")),
                 Err(e) => println!("{}", ui::error(&e.to_string())),
             },
+            Some("/mode") => {
+                let next = self.session.permission_mode().cycle_next();
+                self.session.set_permission_mode(next);
+                println!(
+                    "{}",
+                    ui::success(&format!("权限模式已切换为: {}", next.label()))
+                );
+            }
             Some("/rollback") => match self.session.rollback_git() {
                 Ok(hash) => println!(
                     "{}",
@@ -140,8 +158,10 @@ impl Repl {
                         c
                     },
                     max_rounds: opts.max_rounds,
-                    auto_approve: opts.auto_approve,
+                    permission_mode: opts.permission_mode,
+                    non_interactive_yes: opts.non_interactive_yes,
                     resume: false,
+                    worktree_delegate: opts.worktree_delegate,
                 })
                 .await?;
                 self.session.clear_persisted()?;

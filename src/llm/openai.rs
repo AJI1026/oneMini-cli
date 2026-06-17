@@ -65,6 +65,7 @@ impl OpenAiClient {
             .unwrap_or_else(|| "https://api.openai.com/v1".into())
             .trim_end_matches('/')
             .to_string();
+        crate::fs_util::ensure_https_url(&base_url)?;
 
         Ok(Self {
             client: Client::builder()
