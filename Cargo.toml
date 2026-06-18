@@ -15,6 +15,13 @@ path = "src/main.rs"
 name = "onemini-sign"
 path = "tools/sign-blob/main.rs"
 
+[[bin]]
+name = "generate-icons"
+path = "tools/generate-icons/main.rs"
+
+[build-dependencies]
+winres = "0.1"
+
 [features]
 default = ["keychain"]
 keychain = ["dep:keyring"]
@@ -28,7 +35,7 @@ aes-gcm = "0.10"
 getrandom = "0.2"
 hostname = "0.4"
 whoami = "1"
-keyring = { version = "3", optional = true }
+keyring = { version = "3", optional = true, features = ["apple-native", "linux-native", "windows-native"] }
 async-stream = "0.3"
 async-trait = "0.1"
 clap = { version = "4", features = ["derive", "env"] }
@@ -53,3 +60,5 @@ base64 = "0.22.1"
 sha2 = "0.11.0"
 ed25519-dalek = { version = "2.2.0", features = ["std", "rand_core"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
+image = "0.25"
+ico = "0.3"

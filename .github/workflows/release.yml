@@ -33,6 +33,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure brand icons
+        shell: bash
+        run: |
+          if [[ ! -f assets/onemini.ico || ! -f assets/AppIcon.icns ]]; then
+            chmod +x scripts/generate-brand-icons.sh
+            ./scripts/generate-brand-icons.sh
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -51,25 +59,46 @@ jobs:
           tar czf "$ARCHIVE" -C "$BUNDLE" .
           rm -rf "$BUNDLE"
 
-      - name: Package DMG (macOS)
+      - name: Package app bundle zip (macOS)
         if: matrix.pack == 'mac-arm64'
         run: |
-          PACK="pack-dmg-${{ matrix.pack }}"
-          mkdir -p "$PACK"
-          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "$PACK/"
-          cp -R skills "$PACK/"
-          cp scripts/install-local.sh "$PACK/"
-          chmod +x "$PACK/install-local.sh" "$PACK/${BINARY_NAME}"
-          cat > "$PACK/README.txt" <<'EOF'
-          OneMini CLI
-
-          1. 打开终端，进入此卷内的文件夹
-          2. 运行: ./install-local.sh
-             或: ./onemini install
-          EOF
-          DMG="${BINARY_NAME}-${{ matrix.pack }}.dmg"
-          hdiutil create -volname "OneMini CLI" -srcfolder "$PACK" -ov -format UDZO "$DMG"
-          rm -rf "$PACK"
+          VERSION="$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          APP="OneMini.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "$APP/Contents/MacOS/"
+          chmod +x "$APP/Contents/MacOS/${BINARY_NAME}"
+          cp -R skills "$APP/Contents/Resources/"
+          if [[ -f assets/AppIcon.icns ]]; then
+            cp assets/AppIcon.icns "$APP/Contents/Resources/"
+          fi
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>${BINARY_NAME}</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.onemini.cli</string>
+            <key>CFBundleName</key>
+            <string>OneMini</string>
+            <key>CFBundleIconFile</key>
+            <string>AppIcon</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION}</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          BUNDLE_ZIP="${BINARY_NAME}-${{ matrix.pack }}-bundle.zip"
+          zip -r "$BUNDLE_ZIP" "$APP"
+          rm -rf "$APP"
 
       - name: Package zip (Windows)
         if: matrix.pack == 'win-x64'
@@ -78,21 +107,14 @@ jobs:
           $archive = "${{ env.BINARY_NAME }}-${{ matrix.pack }}.zip"
           $packDir = "pack-windows-${{ matrix.pack }}"
           New-Item -ItemType Directory -Path $packDir -Force | Out-Null
-          New-Item -ItemType Directory -Path "$packDir/lib" -Force | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" "$packDir/"
           Copy-Item -Recurse "skills" "$packDir/"
-          Copy-Item "scripts/install-local.ps1" "$packDir/"
-          Copy-Item "scripts/install-local.bat" "$packDir/"
-          Copy-Item "scripts/lib/windows-path.ps1" "$packDir/lib/"
           $archiveAbs = (Resolve-Path ".").Path + "\$archive"
           Push-Location $packDir
           try {
             Compress-Archive -Path @(
               "$($env:BINARY_NAME).exe",
-              "skills",
-              "install-local.ps1",
-              "install-local.bat",
-              "lib\windows-path.ps1"
+              "skills"
             ) -DestinationPath $archiveAbs -Force
           } finally {
             Pop-Location

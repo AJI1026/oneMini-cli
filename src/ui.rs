@@ -11,16 +11,16 @@ mod usage_bar;
 
 use colored::Colorize;
 
-pub use banner::{play_startup_banner, play_startup_banner_blocking};
+pub use banner::{play_startup_banner, play_startup_banner_blocking, BannerInfo};
 pub use markdown::render_markdown;
 pub use sanitize::{
-    has_markdown_structure, looks_like_reasoning_delta, sanitize_final, sanitize_stream_delta,
+    looks_like_reasoning_delta, sanitize_final, sanitize_stream_delta,
 };
 pub use table::render_table;
 pub use plan::render_plan_text;
 pub use repl_helper::{colored_input_prompt, input_prompt_plain, ReplHelper};
 pub use spinner::frame as spinner_frame;
-pub use stream::{print_diff_preview, StreamRenderer};
+pub use stream::{ensure_terminal_ready, print_diff_preview, StreamRenderer};
 
 pub fn success(msg: &str) -> String {
     format!("{} {}", theme::success_icon(), theme::primary_light(msg))

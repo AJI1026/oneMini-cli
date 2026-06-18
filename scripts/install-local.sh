@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OneMini-CLI local installer (manual tar.gz / DMG download — no signature verification)
+# OneMini-CLI local installer (deprecated — use onemini install or double-click onemini.exe)
 # Usage:
 #   ./install-local.sh
 #   ./install-local.sh --skip-path

@@ -1,6 +1,8 @@
 mod index;
 mod security;
 
+pub use security::verify_signature;
+
 use anyhow::{bail, Context, Result};
 use index::{asset_sig_url, VersionsIndex};
 use semver::Version;

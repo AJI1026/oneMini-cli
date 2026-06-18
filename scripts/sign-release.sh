@@ -29,6 +29,8 @@ need_cmd() {
 
 need_cmd cargo
 need_cmd python3
+need_cmd unzip
+need_cmd zip
 
 cd "${ROOT}"
 
@@ -36,9 +38,44 @@ sign_file() {
   cargo run --quiet --release --bin onemini-sign -- sign --file "$1"
 }
 
+embed_inner_signatures() {
+  local win_zip="${DIST}/onemini-win-x64.zip"
+  if [[ -f "${win_zip}" ]]; then
+    echo "==> embedding onemini.exe.sig into Windows zip"
+    local tmp
+    tmp="$(mktemp -d)"
+    unzip -q "${win_zip}" -d "${tmp}"
+    sign_file "${tmp}/onemini.exe"
+    rm -f "${win_zip}"
+    (cd "${tmp}" && zip -qr "${win_zip}" .)
+    rm -rf "${tmp}"
+  fi
+
+  local mac_bundle="${DIST}/onemini-mac-arm64-bundle.zip"
+  if [[ -f "${mac_bundle}" ]]; then
+    echo "==> embedding onemini.sig into macOS app bundle"
+    local tmp
+    tmp="$(mktemp -d)"
+    unzip -q "${mac_bundle}" -d "${tmp}"
+    local binary="${tmp}/OneMini.app/Contents/MacOS/onemini"
+    local resources="${tmp}/OneMini.app/Contents/Resources"
+    if [[ ! -f "${binary}" ]]; then
+      echo "error: missing ${binary}" >&2
+      exit 1
+    fi
+    sign_file "${binary}"
+    mv "${binary}.sig" "${resources}/onemini.sig"
+    rm -f "${mac_bundle}"
+    (cd "${tmp}" && zip -qr "${mac_bundle}" OneMini.app)
+    rm -rf "${tmp}"
+  fi
+}
+
+embed_inner_signatures
+
 shopt -s nullglob
 signed_any=0
-for archive in "${DIST}"/onemini-*.{tar.gz,zip,dmg}; do
+for archive in "${DIST}"/onemini-*.{tar.gz,zip}; do
   [[ -f "${archive}" ]] || continue
   echo "==> signing $(basename "${archive}")"
   sign_file "${archive}"
@@ -60,7 +97,7 @@ dist, tag, version, base, index_path = sys.argv[1:6]
 
 mapping = {
     "onemini-mac-arm64.tar.gz": ("mac-arm64", "archive"),
-    "onemini-mac-arm64.dmg": ("mac-arm64", "dmg"),
+    "onemini-mac-arm64-bundle.zip": ("mac-arm64", "bundle"),
     "onemini-linux-x64.tar.gz": ("linux-x64", "archive"),
     "onemini-win-x64.zip": ("win-x64", "archive"),
 }
@@ -87,9 +124,9 @@ for fname, (platform, kind) in mapping.items():
     entry = asset_entry(path, fname)
     if kind == "archive":
         assets[platform] = entry
-    elif kind == "dmg":
+    elif kind == "bundle":
         assets.setdefault(platform, {})
-        assets[platform]["dmg"] = entry
+        assets[platform]["bundle"] = entry
 
 if not assets:
     raise SystemExit("no mapped artifacts found")

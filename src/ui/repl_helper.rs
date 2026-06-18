@@ -3,16 +3,14 @@ use std::borrow::Cow::{self, Borrowed};
 use rustyline::highlight::Highlighter;
 use rustyline::{Completer, Helper, Hinter, Validator};
 
-use super::theme;
-
-const INPUT_PROMPT_PLAIN: &str = "> ";
+const INPUT_PROMPT_PLAIN: &str = "You ";
 
 pub fn input_prompt_plain() -> &'static str {
     INPUT_PROMPT_PLAIN
 }
 
 pub fn colored_input_prompt() -> String {
-    format!("{} ", theme::accent(">"))
+    format!("{} ", super::user_prefix())
 }
 
 #[derive(Completer, Helper, Hinter, Validator)]

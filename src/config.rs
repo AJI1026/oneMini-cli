@@ -131,6 +131,9 @@ pub struct Config {
     pub ui: UiConfig,
     #[serde(skip)]
     pub workdir: Option<PathBuf>,
+    /// 用户本次会话是否修改过 API 密钥（保存时决定是否写入钥匙串）
+    #[serde(skip)]
+    pub api_key_dirty: bool,
 }
 
 impl Default for Config {
@@ -154,6 +157,7 @@ impl Default for Config {
             delegate_use_worktree: None,
             ui: UiConfig::default(),
             workdir: None,
+            api_key_dirty: false,
         }
     }
 }
@@ -172,6 +176,10 @@ impl Config {
     }
 
     pub fn load() -> Result<Self> {
+        Self::load_inner(true)
+    }
+
+    fn load_inner(warn_keychain_miss: bool) -> Result<Self> {
         let path = Self::config_path()?;
         if path.exists() {
             let text = fs::read_to_string(&path)
@@ -192,7 +200,7 @@ impl Config {
             if cfg.model.is_none() {
                 cfg.model = Config::default().model;
             }
-            cfg.resolve_api_key()?;
+            cfg.resolve_api_key(warn_keychain_miss)?;
             if let Some(ref url) = cfg.base_url {
                 crate::fs_util::ensure_https_url(url)?;
             }
@@ -202,15 +210,33 @@ impl Config {
         }
     }
 
-    pub fn save(&self) -> Result<PathBuf> {
+    pub fn save(&mut self) -> Result<PathBuf> {
         let path = Self::config_path()?;
         let mut to_save = self.clone();
         to_save.workdir = None;
+        to_save.api_key_dirty = false;
 
-        if let Some(ref key) = to_save.api_key {
-            if !key.is_empty() && !crate::session_crypto::is_keychain_placeholder(key) {
-                if crate::session_crypto::store_api_key_in_keychain(key).is_ok() {
-                    to_save.api_key = Some(crate::session_crypto::API_KEY_KEYCHAIN_PLACEHOLDER.into());
+        let disk_key_is_placeholder = path
+            .exists()
+            .then(|| fs::read_to_string(&path).ok())
+            .flatten()
+            .and_then(|text| toml::from_str::<Config>(&text).ok())
+            .and_then(|c| c.api_key)
+            .is_some_and(|k| crate::session_crypto::is_keychain_placeholder(&k));
+
+        if let Some(key) = to_save.api_key.clone() {
+            if !key.is_empty() && !crate::session_crypto::is_keychain_placeholder(&key) {
+                let write_to_keychain = self.api_key_dirty || !disk_key_is_placeholder;
+                if write_to_keychain {
+                    if crate::session_crypto::store_api_key_in_keychain(&key).is_ok() {
+                        self.api_key_dirty = false;
+                        to_save.api_key =
+                            Some(crate::session_crypto::API_KEY_KEYCHAIN_PLACEHOLDER.into());
+                    }
+                } else {
+                    // 密钥已在钥匙串，仅更新 config.toml 其他字段（如 theme）
+                    to_save.api_key =
+                        Some(crate::session_crypto::API_KEY_KEYCHAIN_PLACEHOLDER.into());
                 }
             }
         }
@@ -220,7 +246,7 @@ impl Config {
         Ok(path)
     }
 
-    fn resolve_api_key(&mut self) -> Result<()> {
+    fn resolve_api_key(&mut self, warn_keychain_miss: bool) -> Result<()> {
         if self
             .api_key
             .as_deref()
@@ -229,7 +255,21 @@ impl Config {
             match crate::session_crypto::load_api_key_from_keychain() {
                 Ok(key) => self.api_key = Some(key),
                 Err(e) => {
-                    anyhow::bail!("config.toml 使用钥匙串存储 API 密钥，但读取失败: {e}");
+                    if let Ok(key) = std::env::var("ONEMINI_API_KEY") {
+                        if !key.is_empty() {
+                            self.api_key = Some(key);
+                            return Ok(());
+                        }
+                    }
+                    if warn_keychain_miss {
+                        eprintln!(
+                            "{}",
+                            crate::ui::warn(&format!(
+                                "钥匙串中的 API 密钥不可用（{e}），将提示重新输入"
+                            ))
+                        );
+                    }
+                    self.api_key = None;
                 }
             }
         }
@@ -243,6 +283,7 @@ impl Config {
     pub fn apply_patch(&mut self, patch: &ConfigPatch) -> Result<()> {
         if let Some(ref k) = patch.api_key {
             self.api_key = Some(k.clone());
+            self.api_key_dirty = true;
         }
         if let Some(ref u) = patch.base_url {
             crate::fs_util::ensure_https_url(u)?;
@@ -353,8 +394,43 @@ impl Config {
         let theme = ColorfulTheme::default();
         let is_fresh_config = !path.exists();
 
+        let mut cfg = if path.exists() {
+            Self::load_inner(false)?
+        } else {
+            Config::default()
+        };
+
+        let api_key_recovery = path.exists()
+            && cfg.base_url.as_deref().is_some_and(|u| !u.is_empty())
+            && cfg.api_key.as_deref().unwrap_or("").is_empty();
+
+        if api_key_recovery {
+            if opts.first_run {
+                crate::ui::play_startup_banner_blocking(&crate::ui::BannerInfo::default());
+            }
+            println!(
+                "{}",
+                crate::ui::warn("API 密钥不可用（钥匙串条目缺失或读取失败），请重新输入")
+            );
+            println!();
+            let api_key = Password::with_theme(&theme)
+                .with_prompt("API 密钥")
+                .interact()?;
+            if api_key.is_empty() {
+                bail!("API 密钥不能为空");
+            }
+            cfg.api_key = Some(api_key);
+            cfg.api_key_dirty = true;
+            let saved = cfg.save()?;
+            println!(
+                "{}",
+                crate::ui::success(&format!("API 密钥已保存: {}", saved.display()))
+            );
+            return Ok(saved);
+        }
+
         if opts.first_run {
-            crate::ui::play_startup_banner_blocking();
+            crate::ui::play_startup_banner_blocking(&crate::ui::BannerInfo::default());
             println!(
                 "{}",
                 crate::ui::warn("首次使用 OneMini CLI，请完成以下配置（约 1 分钟）")
@@ -372,12 +448,6 @@ impl Config {
                 bail!("已取消配置");
             }
         }
-
-        let mut cfg = if path.exists() {
-            Self::load()?
-        } else {
-            Config::default()
-        };
 
         // 1. 选择 API 服务商
         let preset_labels: Vec<String> = PROVIDER_PRESETS
@@ -438,6 +508,7 @@ impl Config {
             .interact()?;
         if !api_key.is_empty() {
             cfg.api_key = Some(api_key);
+            cfg.api_key_dirty = true;
         }
 
         if cfg.api_key.as_deref().unwrap_or("").is_empty() {
@@ -471,6 +542,7 @@ impl Config {
     pub fn merge_cli(&mut self, cli: &Cli) {
         if let Some(ref k) = cli.api_key {
             self.api_key = Some(k.clone());
+            self.api_key_dirty = true;
         }
         if let Some(ref u) = cli.base_url {
             self.base_url = Some(u.clone());

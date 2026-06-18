@@ -340,13 +340,21 @@ onemini --help
 **手动下载 zip（离线 / 网络受限）**：
 
 1. 从 [GitHub Releases](https://github.com/AJI1026/OneMini-CLI/releases) 下载 `onemini-win-x64.zip` 并解压
-2. 在解压目录任选其一：
-   - 双击 `install-local.bat`
-   - 或 PowerShell：`.\install-local.ps1`
-   - 或：`.\onemini.exe install`
+2. **双击 `onemini.exe`**（自动验签、安装到 `%USERPROFILE%\.local\bin`、配置 PATH 与技能）
 3. 新开终端后运行 `onemini config setup`
 
-> 本地安装脚本不做 Ed25519 验签；需要完整验签时请使用上方在线 `install.ps1`。
+也可在解压目录运行 `onemini install`（命令行方式，同样会验签包内 `onemini.exe.sig`）。
+
+> 在线 `install.ps1` 会校验外部 `zip.sig`；离线 zip 内嵌 `onemini.exe.sig` 用于双击安装时的完整性自检。
+
+#### macOS 离线安装（OneMini.app）
+
+1. 从 [GitHub Releases](https://github.com/AJI1026/OneMini-CLI/releases) 下载 `onemini-mac-arm64-bundle.zip` 并解压
+2. 将 `OneMini.app` 拖入「应用程序」文件夹（可选）
+3. **双击 `OneMini.app`**：首次启动自动验签、安装到 `~/.local/bin`、写入 shell PATH 与技能
+4. 新开终端后运行 `onemini config setup`
+
+`onemini update` 仍使用 `onemini-mac-arm64.tar.gz`（轻量更新，无需重新下载 .app）。
 
 | 环境变量 | 说明 |
 |----------|------|

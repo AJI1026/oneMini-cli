@@ -39,22 +39,12 @@ impl Repl {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        ui::play_startup_banner().await;
-        println!(
-            "{}",
-            ui::dim(&format!(
-                "工作目录: {}",
-                self.session.workdir().display()
-            ))
-        );
-        println!(
-            "{}",
-            ui::dim(&format!(
-                "权限模式: {} · 模型: {} · 输入 /help 查看命令",
-                self.session.permission_mode().label(),
-                self.session.opts.config.model_name(),
-            ))
-        );
+        let banner = ui::BannerInfo {
+            model: Some(self.session.opts.config.model_name()),
+            permission_mode: Some(self.session.permission_mode().label()),
+            workdir: Some(self.session.workdir()),
+        };
+        ui::play_startup_banner(&banner).await;
         println!("{}", ui::separator());
         println!();
 
@@ -65,24 +55,24 @@ impl Repl {
             }
             match self.editor.readline(prompt) {
                 Ok(line) => {
-                    let input = line.trim();
-                    if input.is_empty() {
+                    let Some(input) = take_user_input(&line) else {
                         continue;
-                    }
-                    self.editor.add_history_entry(input)?;
+                    };
+                    self.editor.add_history_entry(&input)?;
 
                     if input.starts_with('/') {
-                        if self.handle_slash_command(input).await? {
+                        if self.handle_slash_command(&input).await? {
                             break;
                         }
+                        ui::ensure_terminal_ready();
                         continue;
                     }
 
-                    println!("{} {}", ui::user_prefix(), input);
-                    match self.session.run_turn(input, true).await {
+                    match self.session.run_turn(&input, true).await {
                         Ok(_) => println!(),
                         Err(e) => println!("{}\n", ui::error(&e.to_string())),
                     }
+                    ui::ensure_terminal_ready();
                 }
                 Err(ReadlineError::Interrupted) => {
                     println!();
@@ -249,6 +239,7 @@ impl Repl {
             }
             None => {}
         }
+        ui::ensure_terminal_ready();
         Ok(false)
     }
 
@@ -444,6 +435,7 @@ impl Repl {
                 Ok(_) => println!(),
                 Err(e) => println!("{}\n", ui::error(&e.to_string())),
             }
+            ui::ensure_terminal_ready();
         }
         Ok(())
     }
@@ -464,5 +456,22 @@ impl Repl {
             crate::ui::section_title("Agent Skills").trim(),
             table
         )
+    }
+}
+
+/// 过滤不可见控制字符，避免误触空回车仍触发 API 请求
+fn take_user_input(line: &str) -> Option<String> {
+    let visible: String = line
+        .chars()
+        .filter(|c| {
+            let code = *c as u32;
+            !c.is_control() && code != 0x200b && code != 0xfeff
+        })
+        .collect();
+    let trimmed = visible.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
     }
 }

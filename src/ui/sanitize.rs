@@ -188,16 +188,6 @@ fn collapse_blank_lines(text: &str) -> String {
     out.trim().to_string()
 }
 
-/// 是否含需 Markdown 重绘的结构
-pub fn has_markdown_structure(text: &str) -> bool {
-    text.contains('#')
-        || text.contains("**")
-        || text.contains("```")
-        || text.contains('|')
-        || text.contains("\n- ")
-        || text.contains("\n* ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,4 +1,4 @@
-# OneMini-CLI local installer (manual zip download — no signature verification)
+# OneMini-CLI local installer (deprecated — double-click onemini.exe instead)
 # Usage:
 #   .\install-local.ps1
 #   .\install-local.ps1 -ExePath .\onemini.exe
@@ -36,7 +36,7 @@ if (-not (Test-Path $ExePath)) {
 }
 
 Write-OneminiInfo "local install from $ExePath"
-Write-OneminiWarn "this script does not verify Ed25519 signatures; use the online install.ps1 for full verification"
+Write-OneminiWarn "prefer double-clicking onemini.exe for signed offline install; this script skips signature verification"
 
 $installDir = Get-OneminiInstallDir
 $dest = Install-OneminiBinary -SourceExe $ExePath -BinaryName $BinaryName -InstallDir $installDir

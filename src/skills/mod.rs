@@ -265,6 +265,12 @@ pub fn bundled_skills_root() -> Option<PathBuf> {
         }
     }
     if let Ok(exe) = std::env::current_exe() {
+        if let Some(resources) = crate::install::macos_app_resources_dir(&exe) {
+            let p = resources.join("skills");
+            if p.is_dir() && bootstrap::document_skills_ready(&p) {
+                return Some(p);
+            }
+        }
         if let Some(parent) = exe.parent() {
             let p = parent.join("skills");
             if p.is_dir() && bootstrap::document_skills_ready(&p) {

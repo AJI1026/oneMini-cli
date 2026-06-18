@@ -1,4 +1,4 @@
-//! OneMini CLI 主题 — Modern / Game Boy / NES 三档复古主机风格
+//! OneMini CLI 主题 — Matrix / Game Boy / NES 三档复古终端风格
 
 use colored::Colorize;
 use std::io::{self, IsTerminal};
@@ -40,7 +40,7 @@ impl ThemeId {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::Modern => "cyan 现代终端风",
+            Self::Modern => "Matrix 磷光绿",
             Self::GameBoy => "四色绿像素 / DMG",
             Self::Nes => "蓝底 FC 卡带风",
         }
@@ -104,7 +104,7 @@ pub fn primary(text: &str) -> String {
         return plain(text);
     }
     match current_theme() {
-        ThemeId::Modern => text.bright_cyan().bold().to_string(),
+        ThemeId::Modern => text.truecolor(57, 255, 20).bold().to_string(),
         ThemeId::GameBoy => text.truecolor(155, 188, 15).bold().to_string(),
         ThemeId::Nes => text.on_truecolor(0, 0, 170).white().bold().to_string(),
     }
@@ -116,7 +116,7 @@ pub fn primary_light(text: &str) -> String {
         return plain(text);
     }
     match current_theme() {
-        ThemeId::Modern => text.cyan().to_string(),
+        ThemeId::Modern => text.truecolor(0, 220, 65).to_string(),
         ThemeId::GameBoy => text.truecolor(139, 172, 15).to_string(),
         ThemeId::Nes => text.truecolor(255, 255, 255).to_string(),
     }
@@ -128,7 +128,7 @@ pub fn accent(text: &str) -> String {
         return plain(text);
     }
     match current_theme() {
-        ThemeId::Modern => text.bright_blue().to_string(),
+        ThemeId::Modern => text.truecolor(0, 255, 127).to_string(),
         ThemeId::GameBoy => text.truecolor(48, 98, 48).to_string(),
         ThemeId::Nes => text.yellow().to_string(),
     }
@@ -140,7 +140,7 @@ pub fn muted(text: &str) -> String {
         return plain(text);
     }
     match current_theme() {
-        ThemeId::Modern => text.bright_black().to_string(),
+        ThemeId::Modern => text.truecolor(0, 120, 40).to_string(),
         ThemeId::GameBoy => text.truecolor(48, 98, 48).to_string(),
         ThemeId::Nes => text.truecolor(170, 170, 170).to_string(),
     }
@@ -152,7 +152,7 @@ pub fn muted_strong(text: &str) -> String {
         return plain(text);
     }
     match current_theme() {
-        ThemeId::Modern => text.white().dimmed().to_string(),
+        ThemeId::Modern => text.truecolor(0, 180, 60).dimmed().to_string(),
         ThemeId::GameBoy => text.truecolor(139, 172, 15).dimmed().to_string(),
         ThemeId::Nes => text.white().dimmed().to_string(),
     }
@@ -169,7 +169,7 @@ pub fn thinking_label(text: &str) -> String {
         return plain(text);
     }
     match current_theme() {
-        ThemeId::Modern => text.cyan().bold().to_string(),
+        ThemeId::Modern => text.truecolor(57, 255, 20).bold().to_string(),
         ThemeId::GameBoy => text.truecolor(139, 172, 15).bold().to_string(),
         ThemeId::Nes => text.truecolor(255, 255, 255).dimmed().to_string(),
     }
@@ -181,7 +181,7 @@ pub fn thinking_detail(text: &str) -> String {
         return plain(text);
     }
     match current_theme() {
-        ThemeId::Modern => text.white().dimmed().italic().to_string(),
+        ThemeId::Modern => text.truecolor(0, 160, 50).dimmed().italic().to_string(),
         ThemeId::GameBoy => text.truecolor(48, 98, 48).italic().to_string(),
         ThemeId::Nes => text.truecolor(170, 170, 170).italic().to_string(),
     }
@@ -201,7 +201,7 @@ pub fn warning(text: &str) -> String {
 
 pub fn success_icon() -> String {
     match current_theme() {
-        ThemeId::Modern if colors_enabled() => "[+]".bright_green().bold().to_string(),
+        ThemeId::Modern if colors_enabled() => "[+]".truecolor(57, 255, 20).bold().to_string(),
         ThemeId::GameBoy if colors_enabled() => "[+]".truecolor(155, 188, 15).bold().to_string(),
         ThemeId::Nes if colors_enabled() => "[+]".green().bold().to_string(),
         _ => "[+]".to_string(),
@@ -228,7 +228,7 @@ pub fn warn_icon() -> String {
 
 pub fn tool_icon() -> String {
     match current_theme() {
-        ThemeId::Modern if colors_enabled() => ">".bright_cyan().bold().to_string(),
+        ThemeId::Modern if colors_enabled() => ">".truecolor(57, 255, 20).bold().to_string(),
         ThemeId::GameBoy if colors_enabled() => ">".truecolor(155, 188, 15).bold().to_string(),
         ThemeId::Nes if colors_enabled() => ">".white().bold().to_string(),
         _ => ">".to_string(),
@@ -237,7 +237,7 @@ pub fn tool_icon() -> String {
 
 pub fn thinking_icon() -> String {
     match current_theme() {
-        ThemeId::Modern if colors_enabled() => "*".cyan().to_string(),
+        ThemeId::Modern if colors_enabled() => "*".truecolor(0, 220, 65).to_string(),
         ThemeId::GameBoy if colors_enabled() => "*".truecolor(139, 172, 15).to_string(),
         ThemeId::Nes if colors_enabled() => "~".white().dimmed().to_string(),
         _ => "*".to_string(),
@@ -284,30 +284,52 @@ pub fn diff_remove(line: &str) -> String {
     }
 }
 
-/// 品牌 Logo 行着色（帧动画用）
-pub fn logo_line(text: &str, frame: usize, line_idx: usize) -> String {
+/// Matrix 彩蛋行：极暗绿色细字
+pub fn banner_faint(text: &str) -> String {
     if !colors_enabled() {
         return plain(text);
     }
-    let idx = (frame + line_idx) % 4;
     match current_theme() {
-        ThemeId::Modern => match idx {
-            0 => text.bright_cyan().to_string(),
-            1 => text.cyan().to_string(),
-            2 => text.bright_blue().to_string(),
-            _ => text.white().dimmed().to_string(),
+        ThemeId::Modern => text.truecolor(0, 100, 30).dimmed().italic().to_string(),
+        ThemeId::GameBoy => text.truecolor(48, 98, 48).italic().to_string(),
+        ThemeId::Nes => text.truecolor(170, 170, 170).italic().to_string(),
+    }
+}
+
+/// 启动 Banner 字符着色（Matrix 磷光绿 / 复古主题块字符）
+pub fn banner_glyph_char(c: char) -> String {
+    if c == ' ' {
+        return " ".to_string();
+    }
+    if !colors_enabled() {
+        return c.to_string();
+    }
+    let s = c.to_string();
+    match current_theme() {
+        ThemeId::Modern => match c {
+            '#' | '*' => s.truecolor(57, 255, 20).bold().to_string(),
+            '$' | '>' => s.truecolor(180, 255, 120).bold().to_string(),
+            '[' | ']' => s.truecolor(0, 220, 65).to_string(),
+            '(' | ')' => s.truecolor(0, 255, 127).bold().to_string(),
+            '-' | '_' | '.' | '`' | '\'' | '=' | '+' | '\\' | '/' => {
+                s.truecolor(0, 140, 45).to_string()
+            }
+            '0'..='9' | 'A'..='Z' | 'a'..='z' | '|' => s.truecolor(0, 200, 55).to_string(),
+            _ => s.truecolor(0, 180, 60).to_string(),
         },
-        ThemeId::GameBoy => match idx {
-            0 => text.truecolor(155, 188, 15).to_string(),
-            1 => text.truecolor(139, 172, 15).to_string(),
-            2 => text.truecolor(48, 98, 48).to_string(),
-            _ => text.truecolor(15, 56, 15).to_string(),
+        ThemeId::GameBoy => match c {
+            '●' => s.truecolor(155, 188, 15).bold().to_string(),
+            '█' | '▛' | '▜' | '▄' => s.truecolor(139, 172, 15).bold().to_string(),
+            '▝' | '▘' | '▐' | '▌' => s.truecolor(48, 98, 48).to_string(),
+            '▀' => s.truecolor(15, 56, 15).to_string(),
+            _ => s.truecolor(48, 98, 48).to_string(),
         },
-        ThemeId::Nes => match idx {
-            0 => text.white().on_truecolor(0, 0, 170).to_string(),
-            1 => text.yellow().on_truecolor(0, 0, 170).to_string(),
-            2 => text.red().on_truecolor(0, 0, 170).to_string(),
-            _ => text.truecolor(170, 170, 170).to_string(),
+        ThemeId::Nes => match c {
+            '●' => s.yellow().bold().on_truecolor(0, 0, 170).to_string(),
+            '█' | '▛' | '▜' | '▄' => s.white().bold().on_truecolor(0, 0, 170).to_string(),
+            '▝' | '▘' | '▐' | '▌' => s.truecolor(255, 255, 255).on_truecolor(0, 0, 170).to_string(),
+            '▀' => s.truecolor(170, 170, 170).on_truecolor(0, 0, 170).to_string(),
+            _ => s.truecolor(255, 255, 255).on_truecolor(0, 0, 170).to_string(),
         },
     }
 }

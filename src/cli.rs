@@ -28,7 +28,7 @@ pub const AFTER_LONG_HELP: &str = "\
   onemini config show                  查看当前配置
   onemini config set --api-key sk-...  命令行设置配置项
   onemini init                         初始化配置（等同 config setup）
-  onemini install                      安装到 ~/.local/bin 并配置 PATH
+  onemini install                      安装到 ~/.local/bin 并配置 PATH（Release 包可双击 exe/.app 自动安装）
   onemini update --check               检查是否有新版本
   onemini update                       更新到 GitHub Release 最新版
   onemini skills list                  列出内置与用户技能
@@ -169,7 +169,8 @@ pub enum Commands {
 示例:\n  \
   onemini install\n  \
   onemini install --dir C:\\Users\\you\\.local\\bin\n  \
-  onemini install --skip-path")]
+  onemini install --skip-path\n\n\
+Release 离线包：Windows 双击 onemini.exe；macOS 双击 OneMini.app，首次启动自动安装并验签")]
     Install {
         /// 自定义安装目录（默认 %USERPROFILE%\\.local\\bin 或 ~/.local/bin）
         #[arg(long)]
@@ -349,7 +350,39 @@ impl Cli {
         }
     }
 
+    fn should_trigger_installer_mode(&self) -> bool {
+        if self.command.is_some() {
+            return false;
+        }
+        if self.one_shot_prompt().is_some() {
+            return false;
+        }
+        if self.resume {
+            return false;
+        }
+        if self.directory.is_some()
+            || self.model.is_some()
+            || self.base_url.is_some()
+            || self.api_key.is_some()
+            || self.permission_mode.is_some()
+            || self.dangerously_skip_permissions
+            || self.yes
+            || self.worktree_delegate
+            || self.output_json
+        {
+            return false;
+        }
+        crate::install::should_auto_install()
+    }
+
     pub async fn run(self) -> Result<()> {
+        if self.should_trigger_installer_mode() {
+            return crate::install::run(crate::install::InstallOptions {
+                install_dir: None,
+                skip_path: false,
+            });
+        }
+
         let mut config = Config::load()?;
         config.merge_cli(&self);
 
@@ -398,7 +431,12 @@ impl Cli {
 
         if config.api_key.as_deref().unwrap_or("").is_empty() {
             if stdin().is_terminal() {
-                let path = Config::configure_interactive(ConfigureOptions::first_run())?;
+                let opts = if Config::config_path()?.exists() {
+                    ConfigureOptions::setup(false)
+                } else {
+                    ConfigureOptions::first_run()
+                };
+                let path = Config::configure_interactive(opts)?;
                 println!("{}", ui::success(&format!("配置已保存: {}", path.display())));
                 println!();
                 config = Config::load()?;
