@@ -22,15 +22,17 @@ const DOC_SKILL_REMOTE_PATHS: &[&str] = &[
     "skills/xlsx",
 ];
 
-/// 用户数据目录中的技能根（install.sh / 启动下载写入此处）
+/// 用户数据目录中的技能根（与 install.sh 默认 `~/.local/share/onemini/skills` 一致）
 pub fn document_skills_data_dir() -> PathBuf {
-    dirs::data_local_dir()
+    if let Ok(dir) = std::env::var("ONEMINI_SKILLS_DIR") {
+        return PathBuf::from(dir);
+    }
+    dirs::home_dir()
         .unwrap_or_else(|| {
             crate::config::Config::config_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))
         })
-        .join("onemini")
-        .join("skills")
+        .join(".local/share/onemini/skills")
 }
 
 pub fn document_skills_ready(root: &Path) -> bool {
@@ -41,7 +43,7 @@ pub fn document_skills_ready(root: &Path) -> bool {
 }
 
 /// 启动时确保文档技能脚本已就绪；`interactive` 为 true 时显示提示与进度。
-pub fn ensure_document_skills(interactive: bool) -> Result<()> {
+pub async fn ensure_document_skills(interactive: bool) -> Result<()> {
     if std::env::var("ONEMINI_SKIP_SKILL_BOOTSTRAP").ok().as_deref() == Some("1") {
         return Ok(());
     }
@@ -75,7 +77,6 @@ pub fn ensure_document_skills(interactive: bool) -> Result<()> {
         count: 0,
     }));
 
-    let rt = tokio::runtime::Runtime::new()?;
     let (owner, repo) = ONEMINI_REPO;
     let total = DOC_SKILL_REMOTE_PATHS.len();
 
@@ -89,13 +90,14 @@ pub fn ensure_document_skills(interactive: bool) -> Result<()> {
         }
         let rel = remote.strip_prefix("skills/").unwrap_or(remote);
         let local = dest.join(rel);
-        rt.block_on(super::install::download_tree(
+        super::install::download_tree(
             owner,
             repo,
             remote,
             &local,
             Some(reporter.clone()),
-        ))?;
+        )
+        .await?;
     }
     let file_count = reporter.borrow().count;
     reporter.borrow().finish();

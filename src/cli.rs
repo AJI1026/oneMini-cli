@@ -494,7 +494,7 @@ impl Cli {
                 | Some(Commands::Install { .. })
                 | Some(Commands::Uninstall { .. })
         ) {
-            let _ = crate::skills::bootstrap::ensure_document_skills(stdin().is_terminal());
+            let _ = crate::skills::bootstrap::ensure_document_skills(stdin().is_terminal()).await;
         }
 
         let resume = self.resume || matches!(self.command, Some(Commands::Resume));

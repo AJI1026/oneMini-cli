@@ -239,7 +239,7 @@ main() {
   local target tmpdir index_json
   target="$(detect_target)"
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "${tmpdir}"' EXIT
+  trap "rm -rf '${tmpdir}'" EXIT
 
   info "检测到平台: ${target}"
   info "正在获取已签名的 versions.json"

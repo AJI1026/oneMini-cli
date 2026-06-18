@@ -282,6 +282,13 @@ pub fn bundled_skills_root() -> Option<PathBuf> {
     if data.is_dir() && bootstrap::document_skills_ready(&data) {
         return Some(data);
     }
+    // 旧版 macOS 曾写入 Application Support
+    if let Some(legacy_root) = dirs::data_local_dir() {
+        let legacy = legacy_root.join("onemini/skills");
+        if legacy.is_dir() && bootstrap::document_skills_ready(&legacy) {
+            return Some(legacy);
+        }
+    }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("skills");
     if manifest.is_dir() && bootstrap::document_skills_ready(&manifest) {
         return Some(manifest);

@@ -161,8 +161,7 @@ fn install_one(entry: &CatalogEntry, dest_root: &Path, opts: InstallOptions) -> 
     }
     fs::create_dir_all(&dest)?;
 
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(download_tree(owner, repo, &skill_root, &dest, None))?;
+    block_on_async(download_tree(owner, repo, &skill_root, &dest, None))?;
 
     if !opts.quiet {
         println!(
@@ -181,6 +180,18 @@ fn install_one(entry: &CatalogEntry, dest_root: &Path, opts: InstallOptions) -> 
         }
     }
     Ok(())
+}
+
+/// 在同步上下文中执行异步下载；若已在 Tokio 运行时内则用 block_in_place，避免嵌套 Runtime。
+fn block_on_async<F, T>(future: F) -> Result<T>
+where
+    F: std::future::Future<Output = Result<T>>,
+{
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        tokio::task::block_in_place(|| handle.block_on(future))
+    } else {
+        tokio::runtime::Runtime::new()?.block_on(future)
+    }
 }
 
 pub async fn download_tree(
