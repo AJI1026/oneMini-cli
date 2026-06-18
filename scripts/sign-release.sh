@@ -13,6 +13,11 @@ if [[ -z "${DIST}" || -z "${TAG}" ]]; then
   exit 1
 fi
 
+# 规范为绝对路径，避免在临时目录内 zip 时相对路径指向错误位置
+if [[ "${DIST}" != /* ]]; then
+  DIST="${ROOT}/${DIST}"
+fi
+
 if [[ -z "${ONEMINI_SIGNING_KEY:-}" ]]; then
   echo "error: ONEMINI_SIGNING_KEY not set" >&2
   exit 1

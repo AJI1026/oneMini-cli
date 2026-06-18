@@ -67,6 +67,7 @@ onemini config set --api-key "sk-..." --base-url "https://api.deepseek.com" --mo
 | 一次性任务 | `onemini "重构 config 模块"` 或 `onemini -p "..."` |
 | 只读模式 | `onemini --permission-mode plan` |
 | 检查更新 | `onemini update --check` |
+| 卸载 | `onemini uninstall`（加 `--purge` 删除配置与缓存） |
 
 ### 会话内命令
 

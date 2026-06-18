@@ -12,6 +12,13 @@ pub struct InstallOptions {
     pub skip_path: bool,
 }
 
+pub struct UninstallOptions {
+    pub install_dir: Option<PathBuf>,
+    pub keep_path: bool,
+    pub purge: bool,
+    pub yes: bool,
+}
+
 /// 从 Release 包双击 / 首次打开 .app 时自动进入安装流程。
 pub fn should_auto_install() -> bool {
     if is_installed_at_destination() {
@@ -110,6 +117,102 @@ pub fn run(opts: InstallOptions) -> Result<()> {
     );
 
     pause_or_notify_if_gui_launch(&install_dir);
+    Ok(())
+}
+
+pub fn run_uninstall(opts: UninstallOptions) -> Result<()> {
+    let install_dir = opts
+        .install_dir
+        .or_else(default_install_dir)
+        .context("无法确定安装目录（可设置 ONEMINI_INSTALL_DIR 或 --dir）")?;
+
+    let binary = binary_path(&install_dir);
+    let mut actions = Vec::new();
+    if binary.is_file() {
+        actions.push(format!("删除二进制: {}", binary.display()));
+    } else {
+        actions.push(format!("二进制不存在（跳过）: {}", binary.display()));
+    }
+    if !opts.keep_path {
+        actions.push(format!("移除 PATH 配置（{}）", install_dir.display()));
+    }
+    if opts.purge {
+        if let Some(dir) = onemini_config_dir() {
+            actions.push(format!("删除配置目录: {}", dir.display()));
+        }
+        if let Some(dir) = onemini_data_dir() {
+            actions.push(format!("删除数据目录: {}", dir.display()));
+        }
+    }
+
+    if !opts.yes {
+        println!("{}", crate::ui::warn("即将卸载 OneMini："));
+        for line in &actions {
+            println!("  - {line}");
+        }
+        if !confirm_uninstall()? {
+            println!("{}", crate::ui::dim("已取消卸载"));
+            return Ok(());
+        }
+    }
+
+    let mut removed_any = false;
+
+    if binary.is_file() {
+        if is_current_binary(&binary)? {
+            println!(
+                "{}",
+                crate::ui::warn(&format!(
+                    "当前正在运行 {}，卸载后本进程仍可用；请在新终端验证 onemini 已不可用",
+                    binary.display()
+                ))
+            );
+        }
+        match fs::remove_file(&binary) {
+            Ok(()) => {
+                println!(
+                    "{}",
+                    crate::ui::success(&format!("已删除 {}", binary.display()))
+                );
+                removed_any = true;
+            }
+            Err(e) => {
+                println!(
+                    "{}",
+                    crate::ui::warn(&format!("无法删除 {}: {e}", binary.display()))
+                );
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let staged = binary.with_extension("exe.new");
+        if staged.is_file() {
+            let _ = fs::remove_file(&staged);
+        }
+    }
+
+    if !opts.keep_path {
+        if remove_path_config(&install_dir)? {
+            removed_any = true;
+        }
+    }
+
+    if opts.purge {
+        if purge_user_data()? {
+            removed_any = true;
+        }
+    }
+
+    if removed_any {
+        println!("{}", crate::ui::success("卸载完成"));
+    } else {
+        println!(
+            "{}",
+            crate::ui::warn("未找到可卸载的 OneMini 安装项（可能已通过其他方式安装）")
+        );
+    }
     Ok(())
 }
 
@@ -459,6 +562,167 @@ fn ensure_windows_user_path(install_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+fn is_current_binary(path: &Path) -> Result<bool> {
+    let current = std::env::current_exe().context("无法定位当前可执行文件")?;
+    same_binary_location(&current, path)
+}
+
+fn confirm_uninstall() -> Result<bool> {
+    if !stdin().is_terminal() {
+        anyhow::bail!("非交互环境请添加 --yes 确认卸载");
+    }
+    print!("确认卸载？[y/N] ");
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    stdin().read_line(&mut line)?;
+    let answer = line.trim().to_ascii_lowercase();
+    Ok(matches!(answer.as_str(), "y" | "yes"))
+}
+
+fn onemini_config_dir() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("onemini"))
+}
+
+fn onemini_data_dir() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|d| d.join("onemini"))
+}
+
+fn remove_path_config(install_dir: &Path) -> Result<bool> {
+    #[cfg(windows)]
+    {
+        return remove_windows_user_path(install_dir);
+    }
+    #[cfg(not(windows))]
+    {
+        remove_unix_shell_path(install_dir)
+    }
+}
+
+#[cfg(not(windows))]
+fn remove_unix_shell_path(install_dir: &Path) -> Result<bool> {
+    let profile = detect_shell_profile()?;
+    if !profile.is_file() {
+        return Ok(false);
+    }
+
+    let existing = fs::read_to_string(&profile)
+        .with_context(|| format!("无法读取 {}", profile.display()))?;
+    let Some(updated) = strip_onemini_path_block(&existing) else {
+        println!(
+            "{}",
+            crate::ui::dim(&format!(
+                "未在 {} 中找到 onemini PATH 配置块",
+                profile.display()
+            ))
+        );
+        return Ok(false);
+    };
+
+    fs::write(&profile, updated)
+        .with_context(|| format!("无法写入 {}", profile.display()))?;
+    println!(
+        "{}",
+        crate::ui::success(&format!(
+            "已从 {} 移除 onemini PATH 配置",
+            profile.display()
+        ))
+    );
+    println!(
+        "{}",
+        crate::ui::warn(&format!("请重新打开终端，或运行: source {}", profile.display()))
+    );
+    let _ = install_dir;
+    Ok(true)
+}
+
+#[cfg(windows)]
+fn remove_windows_user_path(install_dir: &Path) -> Result<bool> {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
+    use winreg::RegKey;
+
+    let normalized = install_dir
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let env = hkcu
+        .open_subkey_with_flags("Environment", KEY_READ | KEY_WRITE)
+        .context("无法打开用户环境变量（HKCU\\Environment）")?;
+
+    let user_path: String = env.get_value("Path").unwrap_or_default();
+    let entries: Vec<&str> = user_path
+        .split(';')
+        .filter(|entry| !entry.is_empty())
+        .collect();
+    let filtered: Vec<&str> = entries
+        .iter()
+        .copied()
+        .filter(|entry| entry.trim_end_matches(['\\', '/']) != normalized)
+        .collect();
+
+    if filtered.len() == entries.len() {
+        println!(
+            "{}",
+            crate::ui::dim(&format!("用户 PATH 中未找到 {normalized}"))
+        );
+        return Ok(false);
+    }
+
+    let new_path = filtered.join(";");
+    env.set_value("Path", &new_path)
+        .context("无法写入用户 PATH")?;
+    println!(
+        "{}",
+        crate::ui::success(&format!("已从用户 PATH 移除 {normalized}"))
+    );
+    Ok(true)
+}
+
+fn strip_onemini_path_block(content: &str) -> Option<String> {
+    let begin = content.find(PATH_MARKER_BEGIN)?;
+    let end = content.find(PATH_MARKER_END)?;
+    if end < begin {
+        return None;
+    }
+    let after_end = end + PATH_MARKER_END.len();
+    let tail_start = content[after_end..]
+        .strip_prefix("\r\n")
+        .or_else(|| content[after_end..].strip_prefix('\n'))
+        .map(|rest| after_end + (content[after_end..].len() - rest.len()))
+        .unwrap_or(after_end);
+
+    let mut head = content[..begin].to_string();
+    while head.ends_with('\n') || head.ends_with('\r') {
+        head.pop();
+    }
+    let tail = &content[tail_start..];
+    let mut out = head;
+    if !out.is_empty() && !tail.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(tail);
+    Some(out)
+}
+
+fn purge_user_data() -> Result<bool> {
+    let mut removed = false;
+    for dir in [onemini_config_dir(), onemini_data_dir()] {
+        let Some(dir) = dir else { continue };
+        if !dir.exists() {
+            continue;
+        }
+        fs::remove_dir_all(&dir)
+            .with_context(|| format!("无法删除 {}", dir.display()))?;
+        println!(
+            "{}",
+            crate::ui::success(&format!("已删除 {}", dir.display()))
+        );
+        removed = true;
+    }
+    Ok(removed)
+}
+
 fn pause_or_notify_if_gui_launch(install_dir: &Path) {
     if stdin().is_terminal() {
         return;
@@ -507,5 +771,20 @@ mod tests {
     fn auto_install_requires_no_tty_and_bundle() {
         // 单元测试环境通常有 TTY；仅验证未安装时不会 panic
         let _ = should_auto_install();
+    }
+
+    #[test]
+    fn strip_path_block_removes_markers() {
+        let input = "export FOO=1\n\n# >>> onemini >>>\nexport PATH=\"/home/u/.local/bin:$PATH\"\n# <<< onemini <<<\n\nalias ll='ls -l'\n";
+        let out = strip_onemini_path_block(input).expect("block");
+        assert!(!out.contains(PATH_MARKER_BEGIN));
+        assert!(!out.contains(PATH_MARKER_END));
+        assert!(out.contains("export FOO=1"));
+        assert!(out.contains("alias ll"));
+    }
+
+    #[test]
+    fn strip_path_block_returns_none_without_markers() {
+        assert!(strip_onemini_path_block("export PATH=1").is_none());
     }
 }
