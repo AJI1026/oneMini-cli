@@ -8,7 +8,7 @@
 $ErrorActionPreference = "Stop"
 
 # Must match release/signing_public_key.b64 and the onemini updater embedded key.
-$EmbeddedSigningPublicKeyB64 = "TOZSDtW7+y9gjKglkfmBIZBkaQ/i9hxHOq6ws/xAg2Q="
+$EmbeddedSigningPublicKeyB64 = "x0WXjYDBfSres4W7uRfQyNvxU+c0DWMlneOjJJ0Qe2g="
 
 $Repo = "AJI1026/OneMini-CLI"
 $BinaryName = "onemini"

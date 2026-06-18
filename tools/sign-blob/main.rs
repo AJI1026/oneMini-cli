@@ -49,6 +49,7 @@ fn cmd_keygen(args: &[String]) -> Result<()> {
     println!("公钥已写入: {}", public_path.display());
     println!("私钥已写入: {}（勿提交到 Git）", secret_path.display());
     println!("请将 signing_public_key.b64 提交到仓库，私钥存入 GitHub Secret ONEMINI_SIGNING_KEY");
+    println!("然后运行: ./scripts/sync-embedded-pubkey.sh（同步 install.sh / install.ps1 内置公钥）");
     Ok(())
 }
 

@@ -4,7 +4,9 @@ use std::io::{stdin, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 const BINARY: &str = "onemini";
+#[cfg(not(windows))]
 const PATH_MARKER_BEGIN: &str = "# >>> onemini >>>";
+#[cfg(not(windows))]
 const PATH_MARKER_END: &str = "# <<< onemini <<<";
 
 pub struct InstallOptions {
@@ -599,7 +601,7 @@ fn remove_path_config(install_dir: &Path) -> Result<bool> {
 }
 
 #[cfg(not(windows))]
-fn remove_unix_shell_path(install_dir: &Path) -> Result<bool> {
+fn remove_unix_shell_path(_install_dir: &Path) -> Result<bool> {
     let profile = detect_shell_profile()?;
     if !profile.is_file() {
         return Ok(false);
@@ -631,7 +633,6 @@ fn remove_unix_shell_path(install_dir: &Path) -> Result<bool> {
         "{}",
         crate::ui::warn(&format!("请重新打开终端，或运行: source {}", profile.display()))
     );
-    let _ = install_dir;
     Ok(true)
 }
 
@@ -679,6 +680,7 @@ fn remove_windows_user_path(install_dir: &Path) -> Result<bool> {
     Ok(true)
 }
 
+#[cfg(not(windows))]
 fn strip_onemini_path_block(content: &str) -> Option<String> {
     let begin = content.find(PATH_MARKER_BEGIN)?;
     let end = content.find(PATH_MARKER_END)?;
@@ -723,7 +725,7 @@ fn purge_user_data() -> Result<bool> {
     Ok(removed)
 }
 
-fn pause_or_notify_if_gui_launch(install_dir: &Path) {
+fn pause_or_notify_if_gui_launch(_install_dir: &Path) {
     if stdin().is_terminal() {
         return;
     }
@@ -732,7 +734,7 @@ fn pause_or_notify_if_gui_launch(install_dir: &Path) {
     {
         let msg = format!(
             "OneMini 已安装到 {}。\\n\\n请新开终端，运行：\\nonemini config setup",
-            install_dir.display()
+            _install_dir.display()
         );
         let script = format!(
             "display dialog \"{msg}\" with title \"OneMini\" buttons {{\"OK\"}} default button 1"
@@ -774,6 +776,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn strip_path_block_removes_markers() {
         let input = "export FOO=1\n\n# >>> onemini >>>\nexport PATH=\"/home/u/.local/bin:$PATH\"\n# <<< onemini <<<\n\nalias ll='ls -l'\n";
         let out = strip_onemini_path_block(input).expect("block");
@@ -784,6 +787,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn strip_path_block_returns_none_without_markers() {
         assert!(strip_onemini_path_block("export PATH=1").is_none());
     }

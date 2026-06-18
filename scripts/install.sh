@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # 与 release/signing_public_key.b64 及 onemini update 内置公钥一致（勿从网络下载公钥）
-EMBEDDED_SIGNING_PUBLIC_KEY_B64="TOZSDtW7+y9gjKglkfmBIZBkaQ/i9hxHOq6ws/xAg2Q="
+EMBEDDED_SIGNING_PUBLIC_KEY_B64="x0WXjYDBfSres4W7uRfQyNvxU+c0DWMlneOjJJ0Qe2g="
 
 REPO="AJI1026/OneMini-CLI"
 BINARY_NAME="onemini"
