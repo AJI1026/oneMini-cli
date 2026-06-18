@@ -4,7 +4,6 @@ mod task;
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use serde_json::Value;
-use std::io::{self, Write};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -48,8 +47,10 @@ pub struct AgentSession {
     git: GitManager,
     sandbox_runner: SandboxRunner,
     managed_settings: ManagedSettings,
+    skills: crate::skills::SkillRegistry,
     had_tool_calls_this_turn: bool,
     last_turn_usage: UsageInfo,
+    last_context_tokens: u32,
 }
 
 impl AgentSession {
@@ -86,6 +87,7 @@ impl AgentSession {
         )));
 
         let managed_settings = ManagedSettings::load()?;
+        let skills = crate::skills::SkillRegistry::discover(&workdir)?;
 
         if !opts.config.mcp_servers.is_empty() {
             match McpRegistry::connect_all(&opts.config.mcp_servers).await {
@@ -107,8 +109,10 @@ impl AgentSession {
             git: GitManager::new(workdir),
             sandbox_runner,
             managed_settings,
+            skills,
             had_tool_calls_this_turn: false,
             last_turn_usage: UsageInfo::default(),
+            last_context_tokens: 0,
         })
     }
 
@@ -127,6 +131,26 @@ impl AgentSession {
 
     pub fn set_permission_mode(&mut self, mode: PermissionMode) {
         self.opts.permission_mode = mode;
+    }
+
+    pub fn apply_model(&mut self, model: &str) -> Result<()> {
+        if model == self.opts.config.model_name() {
+            return Ok(());
+        }
+        self.opts.config.model = Some(model.to_string());
+        self.opts.config.save()?;
+        self.client = OpenAiClient::new(&self.opts.config)?;
+        Ok(())
+    }
+
+    pub fn set_show_reasoning(&mut self, enabled: bool) -> Result<()> {
+        self.opts.config.show_reasoning = Some(enabled);
+        self.opts.config.save()?;
+        Ok(())
+    }
+
+    pub fn show_reasoning(&self) -> bool {
+        self.opts.config.show_reasoning()
     }
 
     pub fn disable_auto_mode(&self) -> bool {
@@ -156,10 +180,11 @@ impl AgentSession {
         if self.last_turn_usage.total() > 0 {
             out.push_str(&format!(
                 "{}\n",
-                ui::usage_line(&self.session_usage.format_turn(
+                ui::render_turn_usage(
                     &self.last_turn_usage,
                     self.opts.config.model_name(),
-                ))
+                    self.last_context_tokens,
+                )
             ));
         }
         out.push_str(&format!(
@@ -215,6 +240,25 @@ impl AgentSession {
         self.task_state.begin_turn(user_input, &workdir);
         self.had_tool_calls_this_turn = false;
         self.last_turn_usage = UsageInfo::default();
+        self.last_context_tokens = 0;
+
+        if detect_skills_query(user_input) {
+            let reply = self.skills.format_cli_list();
+            if stream {
+                println!("{}", ui::render_markdown(&reply));
+                println!();
+            }
+            self.messages.push(ChatMessage::user(user_input.to_string()));
+            self.messages.push(ChatMessage {
+                role: "assistant".into(),
+                content: Some(reply.clone()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            });
+            self.persist()?;
+            return Ok(ui::sanitize_final(&reply));
+        }
 
         if needs_compression(&self.messages) {
             let (compressed, _) = compress_messages(&self.client, &self.messages).await?;
@@ -224,12 +268,19 @@ impl AgentSession {
             }
         }
 
+        let (effective_input, auto_skill) = self.skills.prepare_turn_input(user_input);
+        if let Some(name) = auto_skill {
+            if stream {
+                println!("{}", ui::dim(&format!("⟡ 自动启用技能: {name}")));
+            }
+        }
+
         if let Some(ctx) = self.task_state.turn_context_block() {
             self.messages.push(ChatMessage::user(format!(
-                "{ctx}\n\n用户请求:\n{user_input}"
+                "{ctx}\n\n用户请求:\n{effective_input}"
             )));
         } else {
-            self.messages.push(ChatMessage::user(user_input));
+            self.messages.push(ChatMessage::user(effective_input));
         }
 
         let mut rounds = 0u32;
@@ -259,7 +310,9 @@ impl AgentSession {
 
             let tool_calls = assistant.tool_calls.clone().unwrap_or_default();
             if tool_calls.is_empty() {
-                let content = assistant.content.unwrap_or_default();
+                let content = ui::sanitize_final(
+                    &assistant.content.unwrap_or_default(),
+                );
                 self.messages.push(ChatMessage {
                     role: "assistant".into(),
                     content: Some(content.clone()),
@@ -270,16 +323,24 @@ impl AgentSession {
                 self.task_state
                     .advance_after_turn(self.had_tool_calls_this_turn);
                 let summary = self.task_state.finish_summary();
-                let final_content = if summary.is_empty() {
-                    content
-                } else {
-                    format!("{content}{summary}")
-                };
-                if stream {
-                    ui::print_usage_line(
-                        &self
-                            .session_usage
-                            .format_turn(&self.last_turn_usage, self.opts.config.model_name()),
+                if stream && !summary.is_empty() {
+                    println!("{}", ui::task_summary_block(&summary));
+                } else if !stream && !summary.is_empty() {
+                    println!("{}", ui::task_summary_block(&summary));
+                    if !content.is_empty() {
+                        println!(
+                            "{} {}",
+                            ui::assistant_prefix(),
+                            ui::render_markdown(&content)
+                        );
+                    }
+                }
+                self.session_usage.finish_turn();
+                if self.last_turn_usage.total() > 0 {
+                    ui::print_turn_usage(
+                        &self.last_turn_usage,
+                        self.opts.config.model_name(),
+                        self.last_context_tokens,
                     );
                 }
                 let _ = self.hooks.run_notification(&format!(
@@ -287,7 +348,7 @@ impl AgentSession {
                     self.last_turn_usage.total()
                 ));
                 self.persist()?;
-                return Ok(final_content);
+                return Ok(content);
             }
 
             self.had_tool_calls_this_turn = true;
@@ -316,10 +377,12 @@ impl AgentSession {
     }
 
     fn record_usage(&mut self, usage: &UsageInfo) {
-        if usage.total() > 0 {
-            self.last_turn_usage = usage.clone();
-            self.session_usage.add(usage);
+        if usage.total() == 0 {
+            return;
         }
+        self.last_turn_usage.accumulate(usage);
+        self.last_context_tokens = usage.prompt_tokens;
+        self.session_usage.accumulate(usage);
     }
 
     async fn run_stream_round(
@@ -414,6 +477,17 @@ impl AgentSession {
 
         match tool.execute(args.clone()).await {
             Ok(out) => {
+                if name == "bash" && verbose {
+                    if let Ok(v) = serde_json::from_str::<Value>(&out) {
+                        if v["timed_out"].as_bool() == Some(true) {
+                            let cmd = args["command"].as_str().unwrap_or("");
+                            println!(
+                                "{}",
+                                ui::block_warning(ui::bash_timeout_hint(cmd))
+                            );
+                        }
+                    }
+                }
                 if let Err(e) = self.hooks.run_post_tool(name, &args, &out) {
                     if verbose {
                         println!("{}", ui::warn(&format!("PostToolUse hook: {e}")));
@@ -421,7 +495,14 @@ impl AgentSession {
                 }
                 self.track_tool_outcome(name, &args, &out);
                 if verbose {
-                    println!("{}", ui::dim(&truncate_preview(&out, 200)));
+                    let preview = if name == "list_skills" {
+                        format_list_skills_preview(&out).unwrap_or_else(|| truncate_preview(&out, 200))
+                    } else {
+                        truncate_preview(&out, 200)
+                    };
+                    if !preview.trim().is_empty() {
+                        print!("{}", ui::tool_output_preview(&preview));
+                    }
                 }
                 Ok(out)
             }
@@ -552,31 +633,30 @@ impl AgentSession {
             return Ok(false);
         }
 
-        print!("{} 允许执行? [y/是/N/a=始终允许] ", ui::warn("权限"));
-        io::stdout().flush()?;
-        let mut line = String::new();
-        io::stdin().read_line(&mut line)?;
-        let answer = line.trim().to_lowercase();
-        if answer == "a" || answer == "always" || answer == "始终" {
-            let pattern = if tool_name == "bash" {
-                detail.to_string()
-            } else {
-                args["path"].as_str().unwrap_or(detail).to_string()
-            };
-            if let Err(e) = self.permissions.add_allow_rule(tool_name, &pattern) {
-                println!("{}", ui::warn(&format!("无法保存权限规则: {e}")));
-            } else {
-                println!(
-                    "{}",
-                    ui::success(&format!(
-                        "已保存 allow 规则到 {}",
-                        self.permissions.path().display()
-                    ))
-                );
+        match ui::select_permission(tool_name, detail) {
+            Ok(ui::PermissionChoice::Allow) => Ok(true),
+            Ok(ui::PermissionChoice::Deny) => Ok(false),
+            Ok(ui::PermissionChoice::Always) => {
+                let pattern = if tool_name == "bash" {
+                    detail.to_string()
+                } else {
+                    args["path"].as_str().unwrap_or(detail).to_string()
+                };
+                if let Err(e) = self.permissions.add_allow_rule(tool_name, &pattern) {
+                    println!("{}", ui::warn(&format!("无法保存权限规则: {e}")));
+                } else {
+                    println!(
+                        "{}",
+                        ui::success(&format!(
+                            "已保存 allow 规则到 {}",
+                            self.permissions.path().display()
+                        ))
+                    );
+                }
+                Ok(true)
             }
-            return Ok(true);
+            Err(_) => Ok(false),
         }
-        Ok(answer == "y" || answer == "yes" || answer == "是")
     }
 
     fn track_tool_outcome(&mut self, name: &str, args: &Value, out: &str) {
@@ -627,6 +707,56 @@ impl AgentSession {
 pub async fn run_agent(opts: &AgentOptions, prompt: &str, stream: bool) -> Result<String> {
     let mut session = AgentSession::new(opts.clone()).await?;
     session.run_turn(prompt, stream).await
+}
+
+/// 自然语言技能列表查询 — 短路 LLM，直接程序化渲染
+fn detect_skills_query(input: &str) -> bool {
+    let t = input.trim().to_lowercase();
+    if t.is_empty() {
+        return false;
+    }
+    const KEYWORDS: &[&str] = &[
+        "有哪些技能",
+        "有什么技能",
+        "有哪些 skill",
+        "有什么 skill",
+        "技能列表",
+        "skill list",
+        "list skills",
+        "列出技能",
+        "可用技能",
+        "你有哪些技能",
+        "你有什么技能",
+        "你会什么",
+        "有哪些能力",
+    ];
+    KEYWORDS.iter().any(|k| t.contains(k))
+        || t == "skills"
+        || t == "/skills list"
+}
+
+fn format_list_skills_preview(json: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(json).ok()?;
+    let skills = v.get("skills")?.as_array()?;
+    let rows: Vec<Vec<String>> = skills
+        .iter()
+        .filter_map(|s| {
+            Some(vec![
+                format!("/{}", s.get("name")?.as_str()?),
+                match s.get("source")?.as_str()? {
+                    "builtin" => "内置".into(),
+                    "user" => "用户".into(),
+                    "project" => "项目".into(),
+                    other => other.into(),
+                },
+                s.get("description")?.as_str()?.to_string(),
+            ])
+        })
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    Some(crate::ui::render_table(&["命令", "来源", "说明"], &rows))
 }
 
 fn validate_tool_input(name: &str, args: &Value) -> Result<()> {

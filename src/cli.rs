@@ -28,12 +28,19 @@ pub const AFTER_LONG_HELP: &str = "\
   onemini config show                  查看当前配置
   onemini config set --api-key sk-...  命令行设置配置项
   onemini init                         初始化配置（等同 config setup）
+  onemini install                      安装到 ~/.local/bin 并配置 PATH
   onemini update --check               检查是否有新版本
   onemini update                       更新到 GitHub Release 最新版
+  onemini skills list                  列出内置与用户技能
+  onemini skills catalog               Anthropic 官方技能目录
+  onemini skills install pdf design    安装官方技能
+  onemini skills show <name>           查看技能 SKILL.md 全文
 
 交互模式会话命令（进入 onemini 后输入）:
   /help     显示帮助          /plan     查看当前任务计划
   /status   查看步骤与用量    /retry    重试最近失败步骤
+  /model    选择模型          /reasoning  选择思考过程显示
+  /mode     选择权限模式      /skills   从列表激活技能
   /compact  压缩历史消息      /clear    清空会话
   /config   查看配置          /exit     退出
 
@@ -157,6 +164,48 @@ pub enum Commands {
         #[arg(long)]
         ignore_deprecated: bool,
     },
+    /// 将当前可执行文件安装到用户 bin 目录并配置 PATH
+    #[command(after_long_help = "\
+示例:\n  \
+  onemini install\n  \
+  onemini install --dir C:\\Users\\you\\.local\\bin\n  \
+  onemini install --skip-path")]
+    Install {
+        /// 自定义安装目录（默认 %USERPROFILE%\\.local\\bin 或 ~/.local/bin）
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// 跳过自动 PATH 配置
+        #[arg(long)]
+        skip_path: bool,
+    },
+    /// Agent Skills 管理（兼容 anthropics/skills 格式）
+    #[command(after_long_help = "\
+示例:\n  \
+  onemini skills list\n  \
+  onemini skills show debug")]
+    Skills {
+        #[command(subcommand)]
+        action: SkillsAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SkillsAction {
+    /// 列出当前已安装/内置技能
+    List,
+    /// 查看 Anthropic 官方技能目录（可 install 的 id）
+    Catalog,
+    /// 从 anthropics/skills 安装技能到用户目录
+    Install {
+        /// 技能 id，或快捷组 `docs` / `design`
+        #[arg(required = true)]
+        ids: Vec<String>,
+    },
+    /// 查看技能 SKILL.md 全文
+    Show {
+        /// 技能名（SKILL.md frontmatter 中的 name）
+        name: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -209,6 +258,35 @@ impl Cli {
             .after_long_help(AFTER_LONG_HELP)
     }
 
+    fn run_skills_command(action: SkillsAction, workdir: &PathBuf) -> Result<()> {
+        match action {
+            SkillsAction::Catalog => {
+                print!("{}", crate::skills::catalog::format_catalog_table());
+                Ok(())
+            }
+            SkillsAction::Install { ids } => {
+                let parsed = crate::skills::install::parse_install_args(&ids)?;
+                let dest = crate::skills::install::user_skills_dir()?;
+                let installed = crate::skills::install::install_skills(&parsed, &dest)?;
+                println!(
+                    "\n已安装 {} 个技能。重启 onemini 或输入 /skills 查看。",
+                    installed.len()
+                );
+                Ok(())
+            }
+            SkillsAction::List => {
+                let registry = crate::skills::SkillRegistry::discover(workdir)?;
+                print!("{}", registry.format_cli_list());
+                Ok(())
+            }
+            SkillsAction::Show { name } => {
+                let registry = crate::skills::SkillRegistry::discover(workdir)?;
+                print!("{}", registry.format_show(&name)?);
+                Ok(())
+            }
+        }
+    }
+
     fn run_config_command(action: Option<ConfigAction>) -> Result<()> {
         match action {
             None | Some(ConfigAction::Show) => {
@@ -235,12 +313,14 @@ impl Cli {
                     model,
                     temperature,
                     max_tokens,
+                    show_reasoning: None,
                 };
                 if patch.api_key.is_none()
                     && patch.base_url.is_none()
                     && patch.model.is_none()
                     && patch.temperature.is_none()
                     && patch.max_tokens.is_none()
+                    && patch.show_reasoning.is_none()
                 {
                     bail!(
                         "请至少指定一个配置项，例如:\n\
@@ -279,6 +359,7 @@ impl Cli {
             .or(config.workdir.clone())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         config.workdir = Some(workdir.clone());
+        ui::init_theme(config.ui.theme.as_deref());
 
         match self.command {
             Some(Commands::Config { action }) => {
@@ -303,6 +384,15 @@ impl Cli {
                 })
                 .await;
             }
+            Some(Commands::Install { dir, skip_path }) => {
+                return crate::install::run(crate::install::InstallOptions {
+                    install_dir: dir,
+                    skip_path,
+                });
+            }
+            Some(Commands::Skills { action }) => {
+                return Self::run_skills_command(action, &workdir);
+            }
             _ => {}
         }
 
@@ -322,6 +412,13 @@ impl Cli {
                     "--api-key <密钥>"
                 );
             }
+        }
+
+        if !matches!(
+            self.command,
+            Some(Commands::Update { .. }) | Some(Commands::Install { .. })
+        ) {
+            let _ = crate::skills::bootstrap::ensure_document_skills(stdin().is_terminal());
         }
 
         let resume = self.resume || matches!(self.command, Some(Commands::Resume));

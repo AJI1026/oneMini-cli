@@ -103,8 +103,8 @@ mod tests {
                     "tag": "v0.1.0",
                     "deprecated": false,
                     "assets": {
-                        "x86_64-apple-darwin": {
-                            "url": "https://github.com/example/onemini-x86_64-apple-darwin.tar.gz",
+                        "mac-arm64": {
+                            "url": "https://github.com/example/onemini-mac-arm64.tar.gz",
                             "sha256": "abc"
                         }
                     }

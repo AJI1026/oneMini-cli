@@ -24,11 +24,7 @@ fn default_true() -> bool {
 
 impl SandboxConfig {
     pub fn effective_auto_allow(&self) -> bool {
-        if self.auto_allow_sandboxed_bash {
-            true
-        } else {
-            false
-        }
+        self.auto_allow_sandboxed_bash
     }
 }
 
@@ -161,10 +157,13 @@ impl SandboxRunner {
         let work = workdir
             .canonicalize()
             .unwrap_or_else(|_| workdir.to_path_buf());
-        let profile = format!(
+        let mut profile = format!(
             "(version 1)\n(deny default)\n(allow process*)\n(allow sysctl-read)\n(allow file-read*)\n(allow file-write* (subpath \"{}\"))\n(allow file-write* (subpath \"/tmp\"))\n(allow file-write* (subpath \"/var/folders\"))\n",
             work.display()
         );
+        if self.config.allow_network {
+            profile.push_str("(allow network-outbound)\n");
+        }
         let profile_path = std::env::temp_dir().join(format!(
             "onemini-sandbox-{}.sb",
             uuid::Uuid::new_v4()

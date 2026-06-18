@@ -7,30 +7,25 @@
       "deprecated": false,
       "deprecation_reason": null,
       "assets": {
-        "x86_64-apple-darwin": {
-          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-x86_64-apple-darwin.tar.gz",
-          "sha256": "366640643705fbdbb6fd5b3224cf062cac195cead4130480cac938198c838432",
-          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-x86_64-apple-darwin.tar.gz.sig"
+        "mac-arm64": {
+          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-mac-arm64.tar.gz",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-mac-arm64.tar.gz.sig",
+          "dmg": {
+            "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-mac-arm64.dmg",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-mac-arm64.dmg.sig"
+          }
         },
-        "aarch64-apple-darwin": {
-          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-aarch64-apple-darwin.tar.gz",
-          "sha256": "72dbaf129b9d86a4dfd95deb48ef527af9d5f4bf253e5b567e4e83d21760691e",
-          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-aarch64-apple-darwin.tar.gz.sig"
+        "linux-x64": {
+          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-linux-x64.tar.gz",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-linux-x64.tar.gz.sig"
         },
-        "x86_64-unknown-linux-gnu": {
-          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-x86_64-unknown-linux-gnu.tar.gz",
-          "sha256": "e36b35b24a3d0ce3a842cdedb4304e77af2cf1372e585cb137887087fb71fcde",
-          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-x86_64-unknown-linux-gnu.tar.gz.sig"
-        },
-        "aarch64-unknown-linux-gnu": {
-          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-aarch64-unknown-linux-gnu.tar.gz",
-          "sha256": "9c196c5673877b95fc57e81b391d4e90ad732a7b6215eefc7c380d9703992039",
-          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-aarch64-unknown-linux-gnu.tar.gz.sig"
-        },
-        "x86_64-pc-windows-msvc": {
-          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-x86_64-pc-windows-msvc.zip",
-          "sha256": "9d9fabc5a43fc093aa029701a9641576965e15abec642e6b877a67dd2e30d0cc",
-          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-x86_64-pc-windows-msvc.zip.sig"
+        "win-x64": {
+          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-win-x64.zip",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.0/onemini-win-x64.zip.sig"
         }
       }
     }

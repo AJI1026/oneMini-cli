@@ -23,21 +23,28 @@ impl PermissionMode {
         }
     }
 
-    pub fn cycle_next(self, disable_auto: bool) -> Self {
-        match self {
-            Self::Default => Self::Plan,
-            Self::Plan => Self::AcceptEdits,
-            Self::AcceptEdits => {
-                if disable_auto {
-                    Self::Default
-                } else {
-                    Self::Auto
-                }
-            }
-            Self::Auto => Self::Default,
-            Self::DontAsk => Self::Default,
-            Self::Bypass => Self::Bypass,
+    /// REPL 中 `/mode` 可选的模式（不含 dont-ask / bypass）
+    pub fn repl_choices(disable_auto: bool) -> &'static [Self] {
+        if disable_auto {
+            &[Self::Default, Self::Plan, Self::AcceptEdits]
+        } else {
+            &[Self::Default, Self::Plan, Self::AcceptEdits, Self::Auto]
         }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Default => "变更类工具需确认",
+            Self::Plan => "只读：仅 read / grep / glob / fetch",
+            Self::AcceptEdits => "工作区内 write/edit 与安全 bash 自动放行",
+            Self::Auto => "启发式分类器自动判断",
+            Self::DontAsk => "未匹配 allow 规则则拒绝",
+            Self::Bypass => "跳过所有确认（仅隔离环境）",
+        }
+    }
+
+    pub fn select_label(self) -> String {
+        format!("{}  —  {}", self.label(), self.description())
     }
 
     pub fn is_readonly(self) -> bool {

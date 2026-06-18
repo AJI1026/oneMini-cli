@@ -14,27 +14,21 @@ env:
 
 jobs:
   build:
-    name: build (${{ matrix.target }})
+    name: build (${{ matrix.pack }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            ext: tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
-            ext: tar.gz
+            pack: mac-arm64
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            ext: tar.gz
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            ext: tar.gz
+            pack: linux-x64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            ext: zip
+            pack: win-x64
 
     steps:
       - uses: actions/checkout@v4
@@ -43,36 +37,73 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install Linux cross toolchain
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: Package (Unix)
-        if: matrix.ext == 'tar.gz'
+      - name: Package tar.gz (macOS / Linux)
+        if: matrix.pack != 'win-x64'
         run: |
-          ARCHIVE="${BINARY_NAME}-${{ matrix.target }}.tar.gz"
-          tar czf "$ARCHIVE" -C "target/${{ matrix.target }}/release" "${BINARY_NAME}"
-          shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+          ARCHIVE="${BINARY_NAME}-${{ matrix.pack }}.tar.gz"
+          BUNDLE="bundle-${{ matrix.pack }}"
+          mkdir -p "$BUNDLE"
+          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "$BUNDLE/"
+          cp -R skills "$BUNDLE/"
+          tar czf "$ARCHIVE" -C "$BUNDLE" .
+          rm -rf "$BUNDLE"
 
-      - name: Package (Windows)
-        if: matrix.ext == 'zip'
+      - name: Package DMG (macOS)
+        if: matrix.pack == 'mac-arm64'
+        run: |
+          PACK="pack-dmg-${{ matrix.pack }}"
+          mkdir -p "$PACK"
+          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "$PACK/"
+          cp -R skills "$PACK/"
+          cp scripts/install-local.sh "$PACK/"
+          chmod +x "$PACK/install-local.sh" "$PACK/${BINARY_NAME}"
+          cat > "$PACK/README.txt" <<'EOF'
+          OneMini CLI
+
+          1. 打开终端，进入此卷内的文件夹
+          2. 运行: ./install-local.sh
+             或: ./onemini install
+          EOF
+          DMG="${BINARY_NAME}-${{ matrix.pack }}.dmg"
+          hdiutil create -volname "OneMini CLI" -srcfolder "$PACK" -ov -format UDZO "$DMG"
+          rm -rf "$PACK"
+
+      - name: Package zip (Windows)
+        if: matrix.pack == 'win-x64'
         shell: pwsh
         run: |
-          $archive = "${{ env.BINARY_NAME }}-${{ matrix.target }}.zip"
-          Compress-Archive -Path "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" -DestinationPath $archive
-          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
-          Set-Content -Path "${archive}.sha256" -Value "$hash  $archive"
+          $archive = "${{ env.BINARY_NAME }}-${{ matrix.pack }}.zip"
+          $packDir = "pack-windows-${{ matrix.pack }}"
+          New-Item -ItemType Directory -Path $packDir -Force | Out-Null
+          New-Item -ItemType Directory -Path "$packDir/lib" -Force | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" "$packDir/"
+          Copy-Item -Recurse "skills" "$packDir/"
+          Copy-Item "scripts/install-local.ps1" "$packDir/"
+          Copy-Item "scripts/install-local.bat" "$packDir/"
+          Copy-Item "scripts/lib/windows-path.ps1" "$packDir/lib/"
+          $archiveAbs = (Resolve-Path ".").Path + "\$archive"
+          Push-Location $packDir
+          try {
+            Compress-Archive -Path @(
+              "$($env:BINARY_NAME).exe",
+              "skills",
+              "install-local.ps1",
+              "install-local.bat",
+              "lib\windows-path.ps1"
+            ) -DestinationPath $archiveAbs -Force
+          } finally {
+            Pop-Location
+          }
+          Remove-Item -Recurse -Force $packDir
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
+          name: ${{ env.BINARY_NAME }}-${{ matrix.pack }}
           path: |
-            ${{ env.BINARY_NAME }}-${{ matrix.target }}.*
+            ${{ env.BINARY_NAME }}-${{ matrix.pack }}.*
           if-no-files-found: error
 
   release:
@@ -100,11 +131,6 @@ jobs:
           fi
           ./scripts/sign-release.sh dist "${{ github.ref_name }}"
 
-      - name: Generate SHA256SUMS
-        run: |
-          cd dist
-          sha256sum *.tar.gz *.zip 2>/dev/null | sort > SHA256SUMS
-
       - name: Copy signed index to dist
         run: |
           cp release/versions.json dist/versions.json
@@ -113,10 +139,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            dist/*
-            release/versions.json
-            release/versions.json.sig
+          files: dist/*
 
       - name: Commit signed versions.json to main
         run: |

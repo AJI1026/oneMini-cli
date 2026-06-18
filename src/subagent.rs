@@ -79,5 +79,5 @@ async fn execute_readonly_tool(registry: &ToolRegistry, call: &ToolCall) -> Resu
     let tool = registry
         .get(name)
         .with_context(|| format!("未知工具: {name}"))?;
-    tool.execute(args).await.map_err(Into::into)
+    tool.execute(args).await
 }

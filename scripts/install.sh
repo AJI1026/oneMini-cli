@@ -46,18 +46,22 @@ detect_target() {
   arch="$(uname -m)"
 
   case "${os}" in
-    Darwin) os="apple-darwin" ;;
-    Linux)  os="unknown-linux-gnu" ;;
+    Darwin)
+      # 统一提供 Apple Silicon 构建；Intel Mac 可通过 Rosetta 运行
+      printf 'mac-arm64'
+      return
+      ;;
+    Linux)
+      case "${arch}" in
+        x86_64 | amd64) printf 'linux-x64'; return ;;
+        arm64 | aarch64)
+          error "Linux ARM 暂未提供预编译包，请使用: cargo install --path ."
+          ;;
+        *) error "不支持的 CPU 架构: ${arch}" ;;
+      esac
+      ;;
     *) error "不支持的操作系统: ${os}（macOS/Linux 请用 install.sh；Windows 请用 install.ps1）" ;;
   esac
-
-  case "${arch}" in
-    x86_64 | amd64)   arch="x86_64" ;;
-    arm64 | aarch64)  arch="aarch64" ;;
-    *) error "不支持的 CPU 架构: ${arch}" ;;
-  esac
-
-  printf '%s-%s' "${arch}" "${os}"
 }
 
 mirror_url() {
@@ -307,6 +311,13 @@ PY
 
   mkdir -p "${INSTALL_DIR}"
   install -m 755 "${tmpdir}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+
+  SKILLS_DIR="${ONEMINI_SKILLS_DIR:-${HOME}/.local/share/onemini/skills}"
+  if [[ -d "${tmpdir}/skills" ]]; then
+    mkdir -p "${SKILLS_DIR}"
+    cp -R "${tmpdir}/skills/." "${SKILLS_DIR}/"
+    info "已安装文档技能脚本 -> ${SKILLS_DIR}"
+  fi
 
   info "已安装 ${BINARY_NAME} -> ${INSTALL_DIR}/${BINARY_NAME}"
 

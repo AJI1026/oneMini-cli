@@ -5,6 +5,7 @@ edition = "2021"
 description = "OneMini 系产品 CLI — 类似 Claude Code 的终端 AI 编程助手"
 license = "Apache-2.0"
 readme = "README.md"
+default-run = "onemini"
 
 [[bin]]
 name = "onemini"
@@ -17,6 +18,9 @@ path = "tools/sign-blob/main.rs"
 [features]
 default = ["keychain"]
 keychain = ["dep:keyring"]
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
 
 [dependencies]
 anyhow = "1"

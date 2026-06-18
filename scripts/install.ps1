@@ -3,7 +3,7 @@
 #   irm https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.ps1 | iex
 #   $env:ONEMINI_VERSION = "0.1.0"; irm ... | iex
 #
-# Requires: Python 3, OpenSSL (Git for Windows includes openssl)
+# Dependencies: Python 3 + OpenSSL (auto-installed via winget when available)
 
 $ErrorActionPreference = "Stop"
 
@@ -16,12 +16,8 @@ $RawBase = "https://raw.githubusercontent.com/$Repo/main"
 $VersionsIndex = "$RawBase/release/versions.json"
 $VersionsSig = "$RawBase/release/versions.json.sig"
 $VerifyPyUrl = "$RawBase/scripts/verify_signature.py"
+$WindowsPathModuleUrl = "$RawBase/scripts/lib/windows-path.ps1"
 
-$InstallDir = if ($env:ONEMINI_INSTALL_DIR) {
-    $env:ONEMINI_INSTALL_DIR
-} else {
-    Join-Path $env:USERPROFILE ".local\bin"
-}
 $RequestedVersion = $env:ONEMINI_VERSION
 $IgnoreDeprecated = $env:ONEMINI_IGNORE_DEPRECATED -eq "1"
 
@@ -36,6 +32,20 @@ function Write-WarnMsg([string]$Message) {
 function Write-Err([string]$Message) {
     Write-Host "error: $Message" -ForegroundColor Red
     exit 1
+}
+
+function Import-OneminiWindowsPathModule {
+    $localLib = Join-Path $PSScriptRoot "lib\windows-path.ps1"
+    if ($PSScriptRoot -and (Test-Path $localLib)) {
+        . $localLib
+        return
+    }
+    $tempLib = Join-Path $env:TEMP ("onemini-windows-path-" + [guid]::NewGuid().ToString() + ".ps1")
+    if ($PSVersionTable.PSVersion.Major -lt 6) {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    }
+    Invoke-WebRequest -Uri $WindowsPathModuleUrl -OutFile $tempLib -UseBasicParsing
+    . $tempLib
 }
 
 function Ensure-Https([string]$Url) {
@@ -80,6 +90,68 @@ function Find-PythonPath {
     return Find-CommandPath @("python", "python3", "py")
 }
 
+function Refresh-SessionPath {
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $parts = @()
+    if ($userPath) { $parts += $userPath }
+    if ($machinePath) { $parts += $machinePath }
+    $env:Path = ($parts -join ";")
+}
+
+function Install-WingetPackage([string]$Id, [string]$DisplayName) {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+    Write-Info "installing $DisplayName via winget ($Id)..."
+    $proc = Start-Process -FilePath "winget" -ArgumentList @(
+        "install", "--id", $Id, "-e",
+        "--accept-source-agreements", "--accept-package-agreements",
+        "--disable-interactivity"
+    ) -Wait -PassThru -NoNewWindow
+    if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 2316632105) {
+        # 2316632105 = package already installed
+        Write-WarnMsg "winget install $Id exited with code $($proc.ExitCode)"
+        return $false
+    }
+    Refresh-SessionPath
+    return $true
+}
+
+function Ensure-Dependencies {
+    if ($env:ONEMINI_SKIP_DEPS -eq "1") {
+        Write-WarnMsg "ONEMINI_SKIP_DEPS=1, skipping automatic dependency install"
+        return
+    }
+
+    $needPython = -not (Find-PythonPath)
+    $needOpenSsl = -not (Find-OpenSslPath)
+
+    if (-not $needPython -and -not $needOpenSsl) {
+        return
+    }
+
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        if ($needPython) {
+            Write-WarnMsg "Python not found. Install from https://python.org or: winget install Python.Python.3.12"
+        }
+        if ($needOpenSsl) {
+            Write-WarnMsg "OpenSSL not found. Install Git for Windows: https://git-scm.com/download/win"
+        }
+        return
+    }
+
+    if ($needPython) {
+        Install-WingetPackage "Python.Python.3.12" "Python 3.12" | Out-Null
+        Refresh-SessionPath
+    }
+
+    if (-not (Find-OpenSslPath)) {
+        Install-WingetPackage "Git.Git" "Git for Windows" | Out-Null
+        Refresh-SessionPath
+    }
+}
+
 function Invoke-VerifyBlob(
     [string]$File,
     [string]$SigFile,
@@ -97,65 +169,39 @@ function Invoke-VerifyBlob(
 }
 
 function Get-PlatformTarget {
-    return "x86_64-pc-windows-msvc"
+    return "win-x64"
 }
 
 function Get-FileSha256Hex([string]$Path) {
     return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
 }
 
-function Ensure-UserPath([string]$Dir) {
-    if ($env:ONEMINI_SKIP_PATH -eq "1") {
-        Write-WarnMsg "ONEMINI_SKIP_PATH=1, skipping automatic PATH setup"
-        return
-    }
+Import-OneminiWindowsPathModule
 
-    $normalizedDir = $Dir.TrimEnd('\', '/')
-    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($null -eq $userPath) {
-        $userPath = ""
-    }
-
-    $entries = $userPath -split ';' | Where-Object { $_ -and ($_.Trim() -ne "") }
-    $alreadyPresent = $false
-    foreach ($entry in $entries) {
-        if ($entry.TrimEnd('\', '/') -eq $normalizedDir) {
-            $alreadyPresent = $true
-            break
-        }
-    }
-
-    if ($alreadyPresent) {
-        Write-Info "$normalizedDir is already in user PATH"
-    } else {
-        $newPath = if ([string]::IsNullOrWhiteSpace($userPath)) {
-            $normalizedDir
-        } else {
-            "$normalizedDir;$userPath"
-        }
-        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-        Write-Info "added $normalizedDir to user PATH"
-    }
-
-    if ($env:Path -notlike "*$normalizedDir*") {
-        $env:Path = "$normalizedDir;$env:Path"
-    }
-
-    Write-WarnMsg "open a new terminal if onemini is not found in this window"
-}
-
+$InstallDir = Get-OneminiInstallDir
 $TempDir = Join-Path $env:TEMP ("onemini-install-" + [guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
 
 try {
+    Ensure-Dependencies
+
     $pythonPath = Find-PythonPath
     if (-not $pythonPath) {
-        Write-Err "python is required for signature verification (install from https://python.org or winget install Python.Python.3.12)"
+        Write-Err @"
+python is required for signature verification.
+  winget install Python.Python.3.12
+  or download from https://python.org
+  set `$env:ONEMINI_SKIP_DEPS='1' to skip auto-install and show this message only
+"@
     }
 
     $opensslPath = Find-OpenSslPath
     if (-not $opensslPath) {
-        Write-Err "openssl is required (install Git for Windows: https://git-scm.com/download/win)"
+        Write-Err @"
+openssl is required for signature verification.
+  winget install Git.Git
+  or install Git for Windows: https://git-scm.com/download/win
+"@
     }
 
     $target = Get-PlatformTarget
@@ -234,13 +280,19 @@ try {
         Write-Err "onemini.exe not found in archive"
     }
 
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-    $exeDest = Join-Path $InstallDir "$BinaryName.exe"
-    Copy-Item -Path $exeSrc -Destination $exeDest -Force
+    Install-OneminiBinary -SourceExe $exeSrc -BinaryName $BinaryName -InstallDir $InstallDir | Out-Null
 
-    Write-Info "installed $BinaryName -> $exeDest"
+    $skillsSrc = Join-Path $extractDir "skills"
+    if (Test-Path $skillsSrc) {
+        $skillsDest = if ($env:ONEMINI_SKILLS_DIR) { $env:ONEMINI_SKILLS_DIR } else {
+            Join-Path $env:LOCALAPPDATA "onemini\skills"
+        }
+        New-Item -ItemType Directory -Path $skillsDest -Force | Out-Null
+        Copy-Item -Path (Join-Path $skillsSrc "*") -Destination $skillsDest -Recurse -Force
+        Write-Info "installed document skills -> $skillsDest"
+    }
 
-    Ensure-UserPath $InstallDir
+    Ensure-OneminiUserPath -Dir $InstallDir
 
     if (Get-Command $BinaryName -ErrorAction SilentlyContinue) {
         Write-Info "run: $BinaryName --help"

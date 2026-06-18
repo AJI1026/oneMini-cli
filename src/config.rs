@@ -100,6 +100,14 @@ pub struct ConfigPatch {
     pub model: Option<String>,
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
+    pub show_reasoning: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UiConfig {
+    /// modern | gameboy | nes
+    #[serde(default)]
+    pub theme: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +127,8 @@ pub struct Config {
     pub sandbox: crate::sandbox::SandboxConfig,
     #[serde(default)]
     pub delegate_use_worktree: Option<bool>,
+    #[serde(default)]
+    pub ui: UiConfig,
     #[serde(skip)]
     pub workdir: Option<PathBuf>,
 }
@@ -131,7 +141,7 @@ impl Default for Config {
             model: Some("deepseek-chat".into()),
             temperature: Some(0.2),
             max_tokens: Some(8192),
-            show_reasoning: Some(true),
+            show_reasoning: Some(false),
             auto_git_checkpoint: Some(true),
             mcp_servers: Vec::new(),
             sandbox: crate::sandbox::SandboxConfig {
@@ -142,6 +152,7 @@ impl Default for Config {
                 extra_write_paths: Vec::new(),
             },
             delegate_use_worktree: None,
+            ui: UiConfig::default(),
             workdir: None,
         }
     }
@@ -246,16 +257,104 @@ impl Config {
         if let Some(n) = patch.max_tokens {
             self.max_tokens = Some(n);
         }
+        if let Some(v) = patch.show_reasoning {
+            self.show_reasoning = Some(v);
+        }
         Ok(())
+    }
+
+    /// REPL `/model`：列表选择或参数指定模型 ID
+    pub fn pick_model(&self, arg: Option<&str>) -> Result<String> {
+        if let Some(name) = arg {
+            let name = name.trim();
+            if name.is_empty() {
+                bail!("模型 ID 不能为空");
+            }
+            return Ok(name.to_string());
+        }
+        let theme = ColorfulTheme::default();
+        let current = self.model_name();
+        let preset = self
+            .base_url
+            .as_deref()
+            .and_then(find_preset)
+            .unwrap_or(&PROVIDER_PRESETS[PROVIDER_PRESETS.len() - 1]);
+        prompt_model(&theme, preset, Some(current))
+    }
+
+    /// REPL `/reasoning`：列表选择是否显示思考过程
+    pub fn pick_show_reasoning(&self, arg: Option<&str>) -> Result<bool> {
+        if let Some(v) = arg {
+            return match v.to_lowercase().as_str() {
+                "on" | "true" | "1" | "开" | "开启" | "show" => Ok(true),
+                "off" | "false" | "0" | "关" | "关闭" | "hide" => Ok(false),
+                other => bail!("未知选项: {other}，可用: on/off"),
+            };
+        }
+        let labels = vec![
+            "关闭  —  折叠模型思考过程".to_string(),
+            "开启  —  显示模型思考过程".to_string(),
+        ];
+        let default = if self.show_reasoning() { 1 } else { 0 };
+        let idx = crate::ui::select_index("选择思考过程显示", &labels, default)?;
+        Ok(idx == 1)
+    }
+
+    /// REPL `/theme`：列表选择 UI 主题
+    pub fn pick_theme(&self, arg: Option<&str>) -> Result<crate::ui::ThemeId> {
+        use crate::ui::ThemeId;
+
+        let current = self
+            .ui
+            .theme
+            .as_deref()
+            .and_then(ThemeId::parse)
+            .unwrap_or(ThemeId::Modern);
+
+        let show_list = |current: ThemeId| -> Result<ThemeId> {
+            let labels: Vec<String> = ThemeId::ALL
+                .iter()
+                .map(|t| {
+                    let mut label = t.select_label();
+                    if *t == current {
+                        label.push_str("  (当前)");
+                    }
+                    label
+                })
+                .collect();
+            let default = ThemeId::ALL
+                .iter()
+                .position(|t| *t == current)
+                .unwrap_or(0);
+            let idx = crate::ui::select_index("选择 UI 主题", &labels, default)?;
+            Ok(ThemeId::ALL[idx])
+        };
+
+        match arg.map(str::trim).filter(|s| !s.is_empty()) {
+            None | Some("list") => show_list(current),
+            Some(name) => match ThemeId::parse(name) {
+                Some(theme) => Ok(theme),
+                None => {
+                    eprintln!(
+                        "{}",
+                        crate::ui::warn(&format!(
+                            "未知主题: {name}，请从列表中选择"
+                        ))
+                    );
+                    show_list(current)
+                }
+            },
+        }
     }
 
     /// 终端交互式配置：选择服务商 → 输入模型 / Base URL → 输入 API Key
     pub fn configure_interactive(opts: ConfigureOptions) -> Result<PathBuf> {
         let path = Self::config_path()?;
         let theme = ColorfulTheme::default();
+        let is_fresh_config = !path.exists();
 
         if opts.first_run {
-            println!("{}", crate::ui::banner());
+            crate::ui::play_startup_banner_blocking();
             println!(
                 "{}",
                 crate::ui::warn("首次使用 OneMini CLI，请完成以下配置（约 1 分钟）")
@@ -357,6 +456,11 @@ impl Config {
         }
 
         let saved = cfg.save()?;
+
+        if opts.first_run || is_fresh_config {
+            let _ = crate::skills::install::ensure_default_design_skills(false);
+        }
+
         Ok(saved)
     }
 
@@ -383,7 +487,7 @@ impl Config {
     }
 
     pub fn show_reasoning(&self) -> bool {
-        self.show_reasoning.unwrap_or(true)
+        self.show_reasoning.unwrap_or(false)
     }
 
     pub fn auto_git_checkpoint(&self) -> bool {
@@ -411,7 +515,7 @@ impl Config {
 
     pub fn display(&self) -> String {
         format!(
-            "{}\n{}\n{}",
+            "{}\n{}\n{}\n{}",
             crate::ui::status_pair(
                 "配置文件",
                 &Self::config_path()
@@ -420,6 +524,13 @@ impl Config {
             ),
             self.display_summary(),
             crate::ui::status_pair("工作目录", &self.workdir().display().to_string()),
+            crate::ui::status_pair(
+                "UI 主题",
+                self.ui
+                    .theme
+                    .as_deref()
+                    .unwrap_or("modern (默认)"),
+            ),
         )
     }
 
@@ -437,6 +548,17 @@ impl Config {
             crate::ui::hint("onemini")
         )
     }
+}
+
+fn find_preset(base_url: &str) -> Option<&'static ProviderPreset> {
+    let base = base_url.trim().trim_end_matches('/');
+    PROVIDER_PRESETS.iter().find(|p| {
+        if p.base_url.is_empty() {
+            return false;
+        }
+        let preset = p.base_url.trim_end_matches('/');
+        base == preset || base.starts_with(&format!("{preset}/"))
+    })
 }
 
 fn prompt_model(

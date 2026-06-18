@@ -1,8 +1,10 @@
 mod bash;
 mod delegate;
 mod edit;
+mod fetch;
 mod glob_tool;
 mod grep;
+mod list_skills;
 mod read;
 mod write;
 
@@ -18,8 +20,10 @@ use crate::permissions::PermissionMode;
 pub use bash::BashTool;
 pub use delegate::DelegateTool;
 pub use edit::EditTool;
+pub use fetch::FetchTool;
 pub use glob_tool::GlobTool;
 pub use grep::GrepTool;
+pub use list_skills::ListSkillsTool;
 pub use read::ReadTool;
 pub use write::WriteTool;
 
@@ -50,6 +54,8 @@ impl ToolRegistry {
     pub fn new(workdir: PathBuf, sandbox: crate::sandbox::SandboxRunner) -> Self {
         let tools: Vec<Arc<dyn Tool>> = vec![
             Arc::new(ReadTool::new(workdir.clone())),
+            Arc::new(ListSkillsTool::new(workdir.clone())),
+            Arc::new(FetchTool::new()),
             Arc::new(WriteTool::new(workdir.clone())),
             Arc::new(EditTool::new(workdir.clone())),
             Arc::new(GrepTool::new(workdir.clone())),
@@ -72,7 +78,7 @@ impl ToolRegistry {
             return self
                 .tools
                 .iter()
-                .filter(|t| matches!(t.name(), "read" | "grep" | "glob"))
+                .filter(|t| matches!(t.name(), "read" | "grep" | "glob" | "fetch" | "list_skills"))
                 .map(|t| t.definition())
                 .collect();
         }

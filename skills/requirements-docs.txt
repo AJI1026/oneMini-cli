@@ -1,0 +1,9 @@
+pypdf
+pdfplumber
+reportlab
+pandas
+python-docx
+defusedxml
+python-pptx
+openpyxl
+markitdown

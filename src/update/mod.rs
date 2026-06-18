@@ -149,19 +149,14 @@ fn parse_version(s: &str) -> Result<Version> {
 }
 
 fn detect_platform() -> Result<String> {
-    let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
-    let os_tag = match os {
-        "macos" => "apple-darwin",
-        "linux" => "unknown-linux-gnu",
+    match std::env::consts::OS {
+        "macos" => Ok("mac-arm64".into()),
+        "linux" if std::env::consts::ARCH == "x86_64" => Ok("linux-x64".into()),
+        "linux" => bail!(
+            "Linux ARM 暂未提供预编译包，请从源码编译: cargo install --path ."
+        ),
         other => bail!("不支持的操作系统: {other}（仅 macOS / Linux 支持 onemini update）"),
-    };
-    let arch_tag = match arch {
-        "x86_64" => "x86_64",
-        "aarch64" => "aarch64",
-        other => bail!("不支持架构: {other}"),
-    };
-    Ok(format!("{arch_tag}-{os_tag}"))
+    }
 }
 
 fn extract_tar(archive: &Path, dest: &Path) -> Result<()> {

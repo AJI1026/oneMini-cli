@@ -19,6 +19,10 @@ pub fn auto_classify(tool: &str, args: &Value, detail: &str, workdir: &std::path
         return AutoDecision::Allow;
     }
 
+    if tool_lc == "fetch" {
+        return AutoDecision::Ask;
+    }
+
     if tool_lc == "bash" {
         let cmd = detail.to_lowercase();
         if cmd.contains("sudo ")

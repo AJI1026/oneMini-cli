@@ -107,8 +107,8 @@ impl Tool for BashTool {
                 command: command.to_string(),
                 stdout_preview: String::new(),
                 stderr_preview: String::new(),
-                failure_reason: Some(format!("命令执行超时（>{TIMEOUT_SECS}s）")),
-                retry_hint: Some("缩小命令范围或拆分步骤后重试".into()),
+                failure_reason: Some(timeout_failure_message(command)),
+                retry_hint: Some(timeout_retry_hint(command)),
             },
         };
 
@@ -118,6 +118,30 @@ impl Tool for BashTool {
 
 fn preview(text: &str) -> String {
     truncate_output(text, PREVIEW_CHARS)
+}
+
+fn timeout_failure_message(command: &str) -> String {
+    let lower = command.to_lowercase();
+    if is_gui_blocking_command(&lower) {
+        format!("命令执行超时（>{TIMEOUT_SECS}s）：可能因缺少 GUI 环境阻塞（如 plt.show()）")
+    } else {
+        format!("命令执行超时（>{TIMEOUT_SECS}s）")
+    }
+}
+
+fn timeout_retry_hint(command: &str) -> String {
+    let lower = command.to_lowercase();
+    if is_gui_blocking_command(&lower) {
+        "将 plt.show() 改为 plt.savefig()，或设置 matplotlib 使用 Agg 后端后重试".into()
+    } else {
+        "缩小命令范围或拆分步骤后重试".into()
+    }
+}
+
+fn is_gui_blocking_command(lower: &str) -> bool {
+    lower.contains("plt.show")
+        || lower.contains(".show()")
+        || (lower.contains("matplotlib") && lower.contains("show"))
 }
 
 fn classify_failure(code: i32, stderr: &str, stdout: &str) -> String {

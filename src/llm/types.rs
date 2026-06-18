@@ -86,21 +86,22 @@ pub struct ChatRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 pub struct Choice {
     pub message: AssistantMessage,
     #[serde(default)]
-    pub finish_reason: Option<String>, // reserved for stop/tool_calls detection
+    #[allow(dead_code)]
+    pub finish_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 pub struct AssistantMessage {
     #[serde(default)]
+    #[allow(dead_code)]
     pub role: String,
     pub content: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub reasoning_content: Option<String>,
 }
 
@@ -131,5 +132,17 @@ impl UsageInfo {
         } else {
             self.prompt_tokens + self.completion_tokens + self.reasoning_tokens
         }
+    }
+
+    /// 累加一次 API 调用的用量（用于同一用户问题的多轮工具调用）
+    pub fn accumulate(&mut self, other: &UsageInfo) {
+        self.prompt_tokens = self.prompt_tokens.saturating_add(other.prompt_tokens);
+        self.completion_tokens = self
+            .completion_tokens
+            .saturating_add(other.completion_tokens);
+        self.reasoning_tokens = self
+            .reasoning_tokens
+            .saturating_add(other.reasoning_tokens);
+        self.total_tokens = self.total();
     }
 }

@@ -31,11 +31,7 @@ impl GrepTool {
             .arg("--color=never")
             .arg(pattern)
             .current_dir(&self.workdir);
-        if search_path.is_file() {
-            cmd.arg(search_path);
-        } else {
-            cmd.arg(search_path);
-        }
+        cmd.arg(search_path);
         if let Some(g) = glob_filter {
             cmd.args(["--glob", g]);
         }

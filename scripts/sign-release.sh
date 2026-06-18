@@ -36,20 +36,9 @@ sign_file() {
   cargo run --quiet --release --bin onemini-sign -- sign --file "$1"
 }
 
-platform_for() {
-  case "$1" in
-    onemini-x86_64-apple-darwin.tar.gz) echo "x86_64-apple-darwin" ;;
-    onemini-aarch64-apple-darwin.tar.gz) echo "aarch64-apple-darwin" ;;
-    onemini-x86_64-unknown-linux-gnu.tar.gz) echo "x86_64-unknown-linux-gnu" ;;
-    onemini-aarch64-unknown-linux-gnu.tar.gz) echo "aarch64-unknown-linux-gnu" ;;
-    onemini-x86_64-pc-windows-msvc.zip) echo "x86_64-pc-windows-msvc" ;;
-    *) echo "" ;;
-  esac
-}
-
 shopt -s nullglob
 signed_any=0
-for archive in "${DIST}"/onemini-*.{tar.gz,zip}; do
+for archive in "${DIST}"/onemini-*.{tar.gz,zip,dmg}; do
   [[ -f "${archive}" ]] || continue
   echo "==> signing $(basename "${archive}")"
   sign_file "${archive}"
@@ -70,11 +59,10 @@ import sys
 dist, tag, version, base, index_path = sys.argv[1:6]
 
 mapping = {
-    "onemini-x86_64-apple-darwin.tar.gz": "x86_64-apple-darwin",
-    "onemini-aarch64-apple-darwin.tar.gz": "aarch64-apple-darwin",
-    "onemini-x86_64-unknown-linux-gnu.tar.gz": "x86_64-unknown-linux-gnu",
-    "onemini-aarch64-unknown-linux-gnu.tar.gz": "aarch64-unknown-linux-gnu",
-    "onemini-x86_64-pc-windows-msvc.zip": "x86_64-pc-windows-msvc",
+    "onemini-mac-arm64.tar.gz": ("mac-arm64", "archive"),
+    "onemini-mac-arm64.dmg": ("mac-arm64", "dmg"),
+    "onemini-linux-x64.tar.gz": ("linux-x64", "archive"),
+    "onemini-win-x64.zip": ("win-x64", "archive"),
 }
 
 def sha256(path: str) -> str:
@@ -84,19 +72,31 @@ def sha256(path: str) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-assets = {}
-for fname, platform in mapping.items():
-    path = os.path.join(dist, fname)
-    if not os.path.isfile(path):
-        continue
-    assets[platform] = {
+def asset_entry(path: str, fname: str) -> dict:
+    return {
         "url": f"{base}/{fname}",
         "sha256": sha256(path),
         "sig_url": f"{base}/{fname}.sig",
     }
 
+assets = {}
+for fname, (platform, kind) in mapping.items():
+    path = os.path.join(dist, fname)
+    if not os.path.isfile(path):
+        continue
+    entry = asset_entry(path, fname)
+    if kind == "archive":
+        assets[platform] = entry
+    elif kind == "dmg":
+        assets.setdefault(platform, {})
+        assets[platform]["dmg"] = entry
+
 if not assets:
     raise SystemExit("no mapped artifacts found")
+
+for platform, entry in list(assets.items()):
+    if "url" not in entry:
+        raise SystemExit(f"missing archive for platform: {platform}")
 
 if os.path.isfile(index_path):
     with open(index_path, encoding="utf-8") as f:

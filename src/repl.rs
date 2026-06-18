@@ -3,9 +3,15 @@ use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 use rustyline::Editor;
 
+use std::str::FromStr;
+
+use dialoguer::{theme::ColorfulTheme, Input};
+
 use crate::agent::AgentOptions;
 use crate::agent::AgentSession;
 use crate::config::{Config, ConfigureOptions};
+use crate::permissions::PermissionMode;
+use crate::skills::SkillRegistry;
 use crate::slash::SlashRegistry;
 use crate::ui::{self, ReplHelper};
 
@@ -13,6 +19,7 @@ pub struct Repl {
     editor: Editor<ReplHelper, DefaultHistory>,
     session: AgentSession,
     slash: SlashRegistry,
+    skills: SkillRegistry,
 }
 
 impl Repl {
@@ -21,16 +28,18 @@ impl Repl {
         editor.set_helper(Some(ReplHelper::new()));
         let workdir = opts.config.workdir().to_path_buf();
         let slash = SlashRegistry::load(&workdir)?;
+        let skills = SkillRegistry::discover(&workdir)?;
         let session = AgentSession::new(opts).await?;
         Ok(Self {
             editor,
             session,
             slash,
+            skills,
         })
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        println!("{}", ui::banner());
+        ui::play_startup_banner().await;
         println!(
             "{}",
             ui::dim(&format!(
@@ -41,8 +50,9 @@ impl Repl {
         println!(
             "{}",
             ui::dim(&format!(
-                "权限模式: {} · 输入 /mode 切换",
-                self.session.permission_mode().label()
+                "权限模式: {} · 模型: {} · 输入 /help 查看命令",
+                self.session.permission_mode().label(),
+                self.session.opts.config.model_name(),
             ))
         );
         println!("{}", ui::separator());
@@ -106,13 +116,26 @@ impl Repl {
                       /clear    清空对话历史\n\
                       /config        显示当前配置\n\
                       /config setup  重新配置 API / 模型\n\
-                      /mode     切换权限模式\n\
+                      /model    选择模型（列表）\n\
+                      /reasoning  选择是否显示思考过程\n\
+                      /theme    从列表选择 UI 主题\n\
+                      /mode     选择权限模式（列表）\n\
                       /permissions  查看权限规则摘要\n\
-                      /exit     退出\n{}",
+                      /skills   从列表选择并激活技能\n\
+                      /skills list  列出可用 Agent Skills\n\
+                      /exit     退出\n{}{}",
                     ui::section_title("可用命令"),
+                    self.format_skills_help(),
                     self.slash.format_help()
                 );
                 println!("{help}");
+            }
+            Some("/skills") => {
+                if parts.get(1) == Some(&"list") {
+                    println!("{}", self.skills.format_cli_list());
+                } else {
+                    self.select_and_run_skill(parts.get(1).copied()).await?;
+                }
             }
             Some("/plan") => {
                 println!(
@@ -132,15 +155,16 @@ impl Repl {
                 Err(e) => println!("{}", ui::error(&e.to_string())),
             },
             Some("/mode") => {
-                let next = self
-                    .session
-                    .permission_mode()
-                    .cycle_next(self.session.disable_auto_mode());
-                self.session.set_permission_mode(next);
-                println!(
-                    "{}",
-                    ui::success(&format!("权限模式已切换为: {}", next.label()))
-                );
+                self.select_permission_mode(parts.get(1))?;
+            }
+            Some("/model") => {
+                self.select_model(parts.get(1))?;
+            }
+            Some("/reasoning") => {
+                self.select_reasoning(parts.get(1))?;
+            }
+            Some("/theme") => {
+                self.select_theme(parts.get(1))?;
             }
             Some("/permissions") => {
                 println!("\n{}", self.session.permissions_summary());
@@ -200,7 +224,13 @@ impl Repl {
             }
             Some(cmd) => {
                 let name = cmd.trim_start_matches('/');
-                if let Some(custom) = self.slash.resolve(name) {
+                let user_args = parts.get(1..).unwrap_or(&[]).join(" ");
+                if let Some(prompt) = self.skills.activation_prompt(name, &user_args) {
+                    match self.session.run_turn(&prompt, true).await {
+                        Ok(_) => println!(),
+                        Err(e) => println!("{}\n", ui::error(&e.to_string())),
+                    }
+                } else if let Some(custom) = self.slash.resolve(name) {
                     let mut prompt = custom.prompt.clone();
                     if parts.len() > 1 {
                         prompt.push(' ');
@@ -220,5 +250,219 @@ impl Repl {
             None => {}
         }
         Ok(false)
+    }
+
+    fn select_permission_mode(&mut self, arg: Option<&&str>) -> Result<()> {
+        let current = self.session.permission_mode();
+        let disable_auto = self.session.disable_auto_mode();
+        let choices = PermissionMode::repl_choices(disable_auto);
+
+        let selected = if let Some(name) = arg {
+            match PermissionMode::from_str(name) {
+                Ok(mode) if choices.contains(&mode) => mode,
+                Ok(mode) => {
+                    let available = choices
+                        .iter()
+                        .map(|m| m.label())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    println!(
+                        "{}",
+                        ui::warn(&format!(
+                            "模式 {} 在当前环境不可用，可选: {available}",
+                            mode.label()
+                        ))
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("{}", ui::error(&e));
+                    return Ok(());
+                }
+            }
+        } else {
+            let labels: Vec<String> = choices.iter().map(|m| m.select_label()).collect();
+            let default = choices
+                .iter()
+                .position(|&m| m == current)
+                .unwrap_or(0);
+            match ui::select_index("选择权限模式", &labels, default) {
+                Ok(idx) => choices[idx],
+                Err(_) => {
+                    println!("{}", ui::dim("已取消"));
+                    return Ok(());
+                }
+            }
+        };
+
+        if selected == current {
+            println!(
+                "{}",
+                ui::dim(&format!("当前权限模式: {}", current.label()))
+            );
+        } else {
+            self.session.set_permission_mode(selected);
+            println!(
+                "{}",
+                ui::success(&format!("权限模式已切换为: {}", selected.label()))
+            );
+        }
+        Ok(())
+    }
+
+    fn select_model(&mut self, arg: Option<&&str>) -> Result<()> {
+        let current = self.session.opts.config.model_name().to_string();
+        match self.session.opts.config.pick_model(arg.copied()) {
+            Ok(selected) => {
+                if selected == current {
+                    println!(
+                        "{}",
+                        ui::dim(&format!("当前模型: {current}"))
+                    );
+                } else {
+                    match self.session.apply_model(&selected) {
+                        Ok(()) => println!(
+                            "{}",
+                            ui::success(&format!("模型已切换为: {selected}"))
+                        ),
+                        Err(e) => println!("{}", ui::error(&e.to_string())),
+                    }
+                }
+            }
+            Err(_) => println!("{}", ui::dim("已取消")),
+        }
+        Ok(())
+    }
+
+    fn select_reasoning(&mut self, arg: Option<&&str>) -> Result<()> {
+        let current = self.session.show_reasoning();
+        match self.session.opts.config.pick_show_reasoning(arg.copied()) {
+            Ok(selected) => {
+                if selected == current {
+                    println!(
+                        "{}",
+                        ui::dim(&format!(
+                            "思考过程显示: {}",
+                            if current { "开启" } else { "关闭" }
+                        ))
+                    );
+                } else {
+                    match self.session.set_show_reasoning(selected) {
+                        Ok(()) => println!(
+                            "{}",
+                            ui::success(&format!(
+                                "思考过程显示已{}",
+                                if selected { "开启" } else { "关闭" }
+                            ))
+                        ),
+                        Err(e) => println!("{}", ui::error(&e.to_string())),
+                    }
+                }
+            }
+            Err(_) => println!("{}", ui::dim("已取消")),
+        }
+        Ok(())
+    }
+
+    fn select_theme(&mut self, arg: Option<&&str>) -> Result<()> {
+        let current = ui::ThemeId::parse(
+            self.session
+                .opts
+                .config
+                .ui
+                .theme
+                .as_deref()
+                .unwrap_or("modern"),
+        )
+        .unwrap_or(ui::ThemeId::Modern);
+
+        match self.session.opts.config.pick_theme(arg.copied()) {
+            Ok(selected) => {
+                if selected == current {
+                    println!(
+                        "{}",
+                        ui::dim(&format!("当前 UI 主题: {}", selected.label()))
+                    );
+                } else {
+                    ui::set_theme(selected);
+                    self.session.opts.config.ui.theme = Some(selected.as_str().to_string());
+                    match self.session.opts.config.save() {
+                        Ok(path) => println!(
+                            "{}",
+                            ui::success(&format!(
+                                "UI 主题已切换为 {}（已保存: {}）",
+                                selected.label(),
+                                path.display()
+                            ))
+                        ),
+                        Err(e) => println!("{}", ui::error(&e.to_string())),
+                    }
+                }
+            }
+            Err(_) => println!("{}", ui::dim("已取消")),
+        }
+        Ok(())
+    }
+
+    async fn select_and_run_skill(&mut self, name: Option<&str>) -> Result<()> {
+        let skill_name = if let Some(n) = name {
+            n.to_string()
+        } else if self.skills.is_empty() {
+            println!("{}", ui::warn("没有可用技能"));
+            return Ok(());
+        } else {
+            let skills = self.skills.list();
+            let labels: Vec<String> = skills
+                .iter()
+                .map(|s| format!("{}  —  {}", s.name, s.description))
+                .collect();
+            match ui::select_index("选择技能", &labels, 0) {
+                Ok(idx) => skills[idx].name.clone(),
+                Err(_) => {
+                    println!("{}", ui::dim("已取消"));
+                    return Ok(());
+                }
+            }
+        };
+
+        if self.skills.get(&skill_name).is_none() {
+            println!(
+                "{}",
+                ui::warn(&format!("未找到技能: {skill_name}，输入 /skills list 查看"))
+            );
+            return Ok(());
+        }
+
+        let context: String = Input::with_theme(&ColorfulTheme::default())
+            .with_prompt("补充说明（可选，直接回车跳过）")
+            .allow_empty(true)
+            .interact_text()
+            .unwrap_or_default();
+
+        if let Some(prompt) = self.skills.activation_prompt(&skill_name, &context) {
+            match self.session.run_turn(&prompt, true).await {
+                Ok(_) => println!(),
+                Err(e) => println!("{}\n", ui::error(&e.to_string())),
+            }
+        }
+        Ok(())
+    }
+
+    fn format_skills_help(&self) -> String {
+        if self.skills.is_empty() {
+            return String::new();
+        }
+        let rows: Vec<Vec<String>> = self
+            .skills
+            .list()
+            .iter()
+            .map(|skill| vec![format!("/{}", skill.name), skill.description.clone()])
+            .collect();
+        let table = crate::ui::render_table(&["命令", "说明"], &rows);
+        format!(
+            "\n{}\n{}\n",
+            crate::ui::section_title("Agent Skills").trim(),
+            table
+        )
     }
 }
