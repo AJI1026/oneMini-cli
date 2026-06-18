@@ -35,7 +35,8 @@ pub fn should_auto_install() -> bool {
 
     #[cfg(windows)]
     {
-        return launched_from_gui();
+        // Release zip 解压目录内运行且尚未指向安装路径时，双击或本地运行均进入安装
+        return true;
     }
 
     #[cfg(target_os = "macos")]
@@ -48,23 +49,6 @@ pub fn should_auto_install() -> bool {
     {
         false
     }
-}
-
-#[cfg(windows)]
-fn launched_from_gui() -> bool {
-    use std::process::Command;
-
-    let script = r#"
-$p = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId
-if (-not $p) { exit 1 }
-$parent = (Get-CimInstance Win32_Process -Filter "ProcessId=$p").Name
-if ($parent -in @('explorer.exe', 'OpenWith.exe')) { exit 0 } else { exit 1 }
-"#;
-    Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or_else(|_| !stdin().is_terminal())
 }
 
 pub fn run(opts: InstallOptions) -> Result<()> {
