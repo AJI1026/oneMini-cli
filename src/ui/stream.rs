@@ -377,22 +377,21 @@ fn normalize_reasoning_lines(buf: &str) -> Vec<String> {
     lines
 }
 
-/// 折叠模式：始终单行 `\r` 重绘，避免光标上移破坏 readline 与历史输出
+/// 折叠模式：单行原地重绘（光标仍在当前行，勿 `\x1b[nA` 上移）
 fn redraw_single_line(prev_line_count: &mut usize, line: &str) {
-    if *prev_line_count > 0 {
-        print!("\x1b[{}A", *prev_line_count);
-    }
     print!("\x1b[2K\r{line}");
     *prev_line_count = 1;
 }
 
 /// 原地重绘多行块（仅用于思考区展开模式）
 fn redraw_lines(prev_line_count: usize, lines: &[String]) -> usize {
-    if prev_line_count > 0 {
-        print!("\x1b[{prev_line_count}A");
+    let new_count = lines.len().max(1);
+
+    // 上次绘制后光标在块末行末尾，只需上移 (n-1) 行回到块首
+    if prev_line_count > 1 {
+        print!("\x1b[{}A", prev_line_count - 1);
     }
 
-    let new_count = lines.len().max(1);
     for (i, line) in lines.iter().enumerate() {
         print!("\x1b[2K\r{line}");
         if i + 1 < new_count {
@@ -401,14 +400,12 @@ fn redraw_lines(prev_line_count: usize, lines: &[String]) -> usize {
     }
 
     if prev_line_count > new_count {
-        for _ in new_count..prev_line_count {
-            print!("\x1b[2K\r\n");
+        let extra = prev_line_count - new_count;
+        for _ in 0..extra {
+            println!();
+            print!("\x1b[2K\r");
         }
-        print!("\x1b[{}A", prev_line_count - new_count);
-    }
-
-    if new_count > 1 {
-        print!("\x1b[{}A", new_count - 1);
+        print!("\x1b[{}A", extra);
     }
 
     new_count
@@ -418,14 +415,18 @@ fn clear_reasoning_block(line_count: usize) {
     if line_count == 0 {
         return;
     }
-    print!("\x1b[{line_count}A");
+    if line_count == 1 {
+        print!("\x1b[2K\r");
+        return;
+    }
+    print!("\x1b[{}A", line_count - 1);
     for i in 0..line_count {
         print!("\x1b[2K\r");
         if i + 1 < line_count {
             println!();
         }
     }
-    print!("\x1b[{line_count}A");
+    print!("\x1b[{}A", line_count - 1);
 }
 
 /// 流式输出结束后整理终端，避免残留 spinner 与 readline 提示符重叠
