@@ -126,13 +126,18 @@ fn render_markdown_inner(input: &str) -> String {
             },
             Event::Text(text) => {
                 if in_table_cell {
-                    table_cell.push_str(&text);
+                    table_cell.push_str(&style_text(&text, bold, italic, false, None));
                 } else {
                     out.push_str(&style_text(&text, bold, italic, in_code_block, heading_level));
                 }
             }
             Event::Code(text) => {
-                out.push_str(&format!("`{}`", theme::primary_light(&text)));
+                let styled = format!("`{}`", theme::primary_light(&text));
+                if in_table_cell {
+                    table_cell.push_str(&styled);
+                } else {
+                    out.push_str(&styled);
+                }
             }
             Event::SoftBreak => {
                 if in_table_cell {
@@ -194,6 +199,35 @@ mod tests {
         assert!(!rendered.contains('|'));
         assert!(rendered.contains('─'));
         assert!(rendered.contains('1'));
+    }
+
+    #[test]
+    fn table_renders_cjk_weather_rows() {
+        let md = "\
+| 时段 | 天气 | 温度 |\n\
+| --- | --- | --- |\n\
+| 🌅 早上 | 烟霾 | 23°C |\n\
+| ☀️ 中午 | 局部阵雨 | 29°C |";
+        let rendered = render_markdown(md);
+        assert!(!rendered.contains('|'));
+        assert!(rendered.contains("🌅 早上"));
+        assert!(rendered.contains("局部阵雨"));
+    }
+
+    #[test]
+    fn table_cell_bold_renders_without_markers() {
+        let md = "| 项目 | 详情 |\n| --- | --- |\n| **当前天气** | 多云间晴 |";
+        let rendered = render_markdown(md);
+        assert!(!rendered.contains("**"));
+        assert!(rendered.contains("当前天气"));
+        assert!(rendered.contains("多云间晴"));
+    }
+
+    #[test]
+    fn heading_bold_renders_without_markers() {
+        let rendered = render_markdown("**成都今日天气（2026年6月18日）**");
+        assert!(!rendered.contains("**"));
+        assert!(rendered.contains("成都今日天气"));
     }
 }
 

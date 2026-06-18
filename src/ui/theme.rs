@@ -134,6 +134,103 @@ pub fn accent(text: &str) -> String {
     }
 }
 
+#[derive(Clone, Copy)]
+struct Rgb(u8, u8, u8);
+
+fn lerp_rgb(a: Rgb, b: Rgb, t: f32) -> Rgb {
+    let t = t.clamp(0.0, 1.0);
+    Rgb(
+        (a.0 as f32 + (b.0 as f32 - a.0 as f32) * t).round() as u8,
+        (a.1 as f32 + (b.1 as f32 - a.1 as f32) * t).round() as u8,
+        (a.2 as f32 + (b.2 as f32 - a.2 as f32) * t).round() as u8,
+    )
+}
+
+fn brand_gradient_stops() -> [Rgb; 3] {
+    match current_theme() {
+        ThemeId::Modern => [
+            Rgb(0, 140, 45),
+            Rgb(57, 255, 20),
+            Rgb(0, 255, 160),
+        ],
+        ThemeId::GameBoy => [
+            Rgb(15, 56, 15),
+            Rgb(155, 188, 15),
+            Rgb(210, 245, 90),
+        ],
+        ThemeId::Nes => [
+            Rgb(80, 80, 180),
+            Rgb(255, 255, 255),
+            Rgb(255, 220, 80),
+        ],
+    }
+}
+
+fn sample_brand_gradient(stops: [Rgb; 3], t: f32) -> Rgb {
+    let t = t.fract();
+    if t <= 0.5 {
+        lerp_rgb(stops[0], stops[1], t * 2.0)
+    } else {
+        lerp_rgb(stops[1], stops[2], (t - 0.5) * 2.0)
+    }
+}
+
+/// oneMini 品牌字渐变色（phase 0–1 用于 shimmer 动画）
+pub fn render_brand_gradient(text: &str, phase: f32) -> String {
+    if !colors_enabled() {
+        return text.to_string();
+    }
+    let stops = brand_gradient_stops();
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len().max(1);
+    chars
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let base = if len == 1 {
+                0.0
+            } else {
+                i as f32 / (len - 1) as f32
+            };
+            let rgb = sample_brand_gradient(stops, base + phase);
+            c.to_string()
+                .truecolor(rgb.0, rgb.1, rgb.2)
+                .bold()
+                .to_string()
+        })
+        .collect()
+}
+
+/// Logo 块字横向渐变（col_t 0–1 为行内位置，shadow_tier 保留投影层级）
+pub fn banner_logo_char_gradient(c: char, shadow_tier: u8, col_t: f32, phase: f32) -> String {
+    if c == ' ' {
+        return " ".to_string();
+    }
+    if !colors_enabled() {
+        return c.to_string();
+    }
+    let stops = brand_gradient_stops();
+    let mut rgb = sample_brand_gradient(stops, col_t + phase);
+    let factor = match shadow_tier {
+        3 => 0.35,
+        2 => 0.55,
+        1 => 0.75,
+        _ => 1.0,
+    };
+    rgb = Rgb(
+        (rgb.0 as f32 * factor).round() as u8,
+        (rgb.1 as f32 * factor).round() as u8,
+        (rgb.2 as f32 * factor).round() as u8,
+    );
+    let s = c.to_string();
+    let styled = s.truecolor(rgb.0, rgb.1, rgb.2);
+    if shadow_tier == 0 && matches!(c, '█' | '▀' | '▄' | '▓') {
+        styled.bold().to_string()
+    } else {
+        styled.to_string()
+    }
+}
+
 /// 次要文字：说明、预览
 pub fn muted(text: &str) -> String {
     if !colors_enabled() {
@@ -284,15 +381,34 @@ pub fn diff_remove(line: &str) -> String {
     }
 }
 
-/// Matrix 彩蛋行：极暗绿色细字
-pub fn banner_faint(text: &str) -> String {
+/// 启动 Banner 欢迎条边框与文字（Claude Code 风杏色框）
+pub fn banner_welcome_line(line: &str) -> String {
     if !colors_enabled() {
-        return plain(text);
+        return plain(line);
     }
     match current_theme() {
-        ThemeId::Modern => text.truecolor(0, 100, 30).dimmed().italic().to_string(),
-        ThemeId::GameBoy => text.truecolor(48, 98, 48).italic().to_string(),
-        ThemeId::Nes => text.truecolor(170, 170, 170).italic().to_string(),
+        ThemeId::Modern => line
+            .chars()
+            .map(|c| {
+                let s = c.to_string();
+                match c {
+                    '┌' | '┐' | '└' | '┘' | '│' | '─' => {
+                        s.truecolor(224, 108, 85).bold().to_string()
+                    }
+                    '*' => s.truecolor(245, 180, 150).bold().to_string(),
+                    ' ' => " ".to_string(),
+                    _ => s.truecolor(224, 108, 85).to_string(),
+                }
+            })
+            .collect(),
+        ThemeId::GameBoy => line
+            .chars()
+            .map(|c| banner_glyph_char(c))
+            .collect(),
+        ThemeId::Nes => line
+            .chars()
+            .map(|c| banner_glyph_char(c))
+            .collect(),
     }
 }
 

@@ -58,7 +58,7 @@ impl McpConnection {
                 json!({
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
-                    "clientInfo": { "name": "onemini-cli", "version": "0.1.0" }
+                    "clientInfo": { "name": "onemini-cli", "version": env!("CARGO_PKG_VERSION") }
                 }),
             )
             .await?;

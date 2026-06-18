@@ -1,6 +1,6 @@
 [package]
 name = "onemini-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "OneMini 系产品 CLI — 类似 Claude Code 的终端 AI 编程助手"
 license = "Apache-2.0"
@@ -54,6 +54,7 @@ semver = "1"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 toml = "0.8"
+unicode-width = "0.2"
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 base64 = "0.22.1"

@@ -90,9 +90,17 @@ pub fn reasoning_fold_line(folded_count: usize) -> String {
 
 /// 折叠模式：单行 Spinner + 摘要
 pub fn thinking_spinner_line(frame: usize, summary: &str) -> String {
+    spinner_status_line(frame, theme::thinking_label("思考中"), summary)
+}
+
+/// 等待模型响应时的单行 Spinner
+pub fn generating_spinner_line(frame: usize) -> String {
+    spinner_status_line(frame, theme::primary_light("正在生成"), "…")
+}
+
+fn spinner_status_line(frame: usize, label: String, hint: &str) -> String {
     let spin = spinner::frame(frame);
-    let label = theme::thinking_label("思考中");
-    let hint = theme::muted_strong(summary);
+    let hint = theme::muted_strong(hint);
     format!("  {} {} {hint}", spin, label)
 }
 

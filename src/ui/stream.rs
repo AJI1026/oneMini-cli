@@ -12,6 +12,8 @@ const COLLAPSED_SUMMARY_CHARS: usize = 48;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StreamPhase {
     Idle,
+    /// 等待首个 token（API 响应前）
+    Waiting,
     Reasoning,
     Content,
 }
@@ -21,11 +23,15 @@ pub struct StreamRenderer {
     reasoning_buf: String,
     content_buf: String,
     content_header: bool,
+    /// 流式正文已占用的终端行数（用于 finish 时原地重绘 Markdown）
+    content_lines_drawn: usize,
     /// true = 展开样式；false = 不显示思考过程
     show_reasoning: bool,
     spinner_frame: usize,
     /// 上次绘制的思考块占用的终端行数
     reasoning_lines_drawn: usize,
+    /// 等待动画占用的终端行数
+    waiting_lines_drawn: usize,
 }
 
 impl StreamRenderer {
@@ -35,9 +41,36 @@ impl StreamRenderer {
             reasoning_buf: String::new(),
             content_buf: String::new(),
             content_header: false,
+            content_lines_drawn: 0,
             show_reasoning,
             spinner_frame: 0,
             reasoning_lines_drawn: 0,
+            waiting_lines_drawn: 0,
+        }
+    }
+
+    /// 流式回合开始：显示「正在生成」等待动画
+    pub fn begin_waiting(&mut self) {
+        self.phase = StreamPhase::Waiting;
+        self.spinner_frame = 0;
+        self.redraw_waiting();
+        io::stdout().flush().ok();
+    }
+
+    /// 定时刷新 Spinner（等待首 token 或折叠思考模式）
+    pub fn tick(&mut self) {
+        match self.phase {
+            StreamPhase::Waiting => {
+                self.spinner_frame = self.spinner_frame.wrapping_add(1);
+                self.redraw_waiting();
+                io::stdout().flush().ok();
+            }
+            StreamPhase::Reasoning if !self.show_reasoning => {
+                self.spinner_frame = self.spinner_frame.wrapping_add(1);
+                self.redraw_reasoning(false);
+                io::stdout().flush().ok();
+            }
+            _ => {}
         }
     }
 
@@ -45,6 +78,7 @@ impl StreamRenderer {
         if self.phase == StreamPhase::Content {
             return;
         }
+        self.clear_waiting();
         self.phase = StreamPhase::Reasoning;
         self.reasoning_buf.push_str(delta);
         if !self.show_reasoning {
@@ -64,6 +98,7 @@ impl StreamRenderer {
         if cleaned.is_empty() {
             return;
         }
+        self.clear_waiting();
         if self.phase == StreamPhase::Reasoning {
             self.finish_reasoning();
         }
@@ -75,21 +110,29 @@ impl StreamRenderer {
             self.content_header = true;
         }
         print!("{cleaned}");
+        self.content_lines_drawn = count_content_lines(&self.content_buf);
 
         io::stdout().flush().ok();
     }
 
     pub fn on_tool_call(&mut self, name: &str, detail: &str) {
+        self.clear_waiting();
         self.finish_active();
         println!("{}", ui::tool_call(name, detail));
     }
 
     pub fn finish(&mut self, final_content: Option<&str>) {
+        self.clear_waiting();
         self.finish_active();
         self.force_clear_reasoning_ui();
 
         if self.content_header {
-            // 流式阶段已逐字输出，勿再重绘（光标上移在折行/REPL 下会错位导致重复）
+            let raw = final_content.unwrap_or(&self.content_buf);
+            if !raw.trim().is_empty() {
+                let lines = content_display_lines(&render_markdown(raw));
+                clear_content_block(self.content_lines_drawn);
+                print_rendered_content(&lines);
+            }
             println!();
         } else {
             let raw = final_content.unwrap_or(&self.content_buf);
@@ -106,6 +149,7 @@ impl StreamRenderer {
     }
 
     pub fn finish_tool_round(&mut self) {
+        self.clear_waiting();
         self.finish_active();
         self.force_clear_reasoning_ui();
         self.reset();
@@ -114,6 +158,10 @@ impl StreamRenderer {
 
     fn finish_active(&mut self) {
         match self.phase {
+            StreamPhase::Waiting => {
+                self.clear_waiting();
+                self.phase = StreamPhase::Idle;
+            }
             StreamPhase::Reasoning => self.finish_reasoning(),
             StreamPhase::Content => {
                 self.phase = StreamPhase::Idle;
@@ -154,8 +202,23 @@ impl StreamRenderer {
         self.reasoning_buf.clear();
         self.content_buf.clear();
         self.content_header = false;
+        self.content_lines_drawn = 0;
         self.reasoning_lines_drawn = 0;
+        self.waiting_lines_drawn = 0;
         self.spinner_frame = 0;
+    }
+
+    fn redraw_waiting(&mut self) {
+        let line = ui::generating_spinner_line(self.spinner_frame);
+        redraw_single_line(&mut self.waiting_lines_drawn, &line);
+    }
+
+    fn clear_waiting(&mut self) {
+        if self.waiting_lines_drawn > 0 {
+            clear_reasoning_block(self.waiting_lines_drawn);
+            self.waiting_lines_drawn = 0;
+            io::stdout().flush().ok();
+        }
     }
 
     fn redraw_reasoning(&mut self, frozen: bool) {
@@ -196,6 +259,29 @@ fn print_rendered_content(lines: &[String]) {
         print!("\x1b[2K\r{line}");
         if i + 1 < lines.len() {
             println!();
+        }
+    }
+}
+
+/// 流式正文行数（首行含助手前缀，后续按换行计）
+fn count_content_lines(content: &str) -> usize {
+    if content.is_empty() {
+        0
+    } else {
+        1 + content.matches('\n').count()
+    }
+}
+
+/// 清除流式输出的原始 Markdown 块，便于 finish 时原地重绘
+fn clear_content_block(line_count: usize) {
+    if line_count == 0 {
+        return;
+    }
+    print!("\r");
+    for i in 0..line_count {
+        print!("\x1b[2K");
+        if i + 1 < line_count {
+            print!("\x1b[1A");
         }
     }
 }
@@ -358,7 +444,7 @@ pub fn print_diff_preview(diff: &str) {
 mod tests {
     use super::{
         build_collapsed_spinner_line, build_reasoning_display, content_display_lines,
-        normalize_reasoning_lines, MAX_VISIBLE_REASONING_LINES,
+        count_content_lines, normalize_reasoning_lines, MAX_VISIBLE_REASONING_LINES,
     };
 
     #[test]
@@ -423,5 +509,12 @@ mod tests {
         assert!(lines[0].contains('第'));
         assert!(!lines[1].contains("OneMini"));
         assert_eq!(lines[1], "第二行");
+    }
+
+    #[test]
+    fn count_content_lines_handles_newlines() {
+        assert_eq!(count_content_lines(""), 0);
+        assert_eq!(count_content_lines("单行"), 1);
+        assert_eq!(count_content_lines("a\nb\nc"), 3);
     }
 }

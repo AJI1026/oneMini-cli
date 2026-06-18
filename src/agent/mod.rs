@@ -397,35 +397,49 @@ impl AgentSession {
 
         let show_reasoning = self.opts.config.show_reasoning();
         let mut renderer = StreamRenderer::new(show_reasoning);
+        renderer.begin_waiting();
         let mut final_msg: Option<AssistantMessage> = None;
 
-        while let Some(event) = stream.next().await {
-            match event {
-                StreamEvent::ReasoningDelta(delta) => {
-                    renderer.on_reasoning_delta(&delta);
-                }
-                StreamEvent::ContentDelta(delta) => {
-                    renderer.on_content_delta(&delta);
-                }
-                StreamEvent::ToolCallDelta { name, .. } => {
-                    if let Some(n) = name {
-                        renderer.on_tool_call(&n, "准备调用…");
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(80));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                event = stream.next() => {
+                    match event {
+                        None => break,
+                        Some(event) => match event {
+                            StreamEvent::ReasoningDelta(delta) => {
+                                renderer.on_reasoning_delta(&delta);
+                            }
+                            StreamEvent::ContentDelta(delta) => {
+                                renderer.on_content_delta(&delta);
+                            }
+                            StreamEvent::ToolCallDelta { name, .. } => {
+                                if let Some(n) = name {
+                                    renderer.on_tool_call(&n, "准备调用…");
+                                }
+                            }
+                            StreamEvent::Usage(usage) => {
+                                self.record_usage(&usage);
+                            }
+                            StreamEvent::Done(msg) => {
+                                let content = msg.content.as_deref().filter(|s| !s.is_empty());
+                                let has_tools = msg.tool_calls.as_ref().is_some_and(|t| !t.is_empty());
+                                if has_tools {
+                                    renderer.finish_tool_round();
+                                } else {
+                                    renderer.finish(content);
+                                }
+                                final_msg = Some(msg);
+                            }
+                            StreamEvent::Error(e) => anyhow::bail!("流式错误: {e}"),
+                        },
                     }
                 }
-                StreamEvent::Usage(usage) => {
-                    self.record_usage(&usage);
+                _ = tick.tick() => {
+                    renderer.tick();
                 }
-                StreamEvent::Done(msg) => {
-                    let content = msg.content.as_deref().filter(|s| !s.is_empty());
-                    let has_tools = msg.tool_calls.as_ref().is_some_and(|t| !t.is_empty());
-                    if has_tools {
-                        renderer.finish_tool_round();
-                    } else {
-                        renderer.finish(content);
-                    }
-                    final_msg = Some(msg);
-                }
-                StreamEvent::Error(e) => anyhow::bail!("流式错误: {e}"),
             }
         }
 

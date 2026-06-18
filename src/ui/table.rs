@@ -1,9 +1,30 @@
 //! 终端 ASCII 表格（技能列表、目录等）
 
 use super::theme;
+use unicode_width::UnicodeWidthStr;
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for ch in chars.by_ref() {
+                    if ch == 'm' {
+                        break;
+                    }
+                }
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
+}
 
 fn cell_width(s: &str) -> usize {
-    s.chars().count()
+    strip_ansi(s).width()
 }
 
 fn pad_cell(s: &str, width: usize) -> String {
@@ -100,5 +121,19 @@ mod tests {
         );
         assert!(out.contains("debug"));
         assert!(out.contains("内置"));
+    }
+
+    #[test]
+    fn cjk_and_emoji_use_display_width() {
+        let out = render_table(
+            &["时段", "天气", "温度"],
+            &[
+                vec!["🌅 早上".into(), "烟霾".into(), "23°C".into()],
+                vec!["☀️ 中午".into(), "局部阵雨".into(), "29°C".into()],
+            ],
+        );
+        for expected in ["🌅 早上", "局部阵雨", "23°C", "☀️ 中午"] {
+            assert!(out.contains(expected), "missing {expected} in:\n{out}");
+        }
     }
 }
