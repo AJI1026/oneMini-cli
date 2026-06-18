@@ -545,7 +545,42 @@ fn ensure_windows_user_path(install_dir: &Path) -> Result<()> {
         "{}",
         crate::ui::success(&format!("已将 {normalized} 加入用户 PATH"))
     );
+
+  // 让当前进程立即可用；并通知系统刷新环境变量（仅写注册表时新终端可能读不到）
+    prepend_current_process_path(&normalized);
+    broadcast_windows_environment_change();
+
     Ok(())
+}
+
+#[cfg(windows)]
+fn prepend_current_process_path(normalized: &str) {
+    let current = std::env::var("PATH").unwrap_or_default();
+    if current
+        .split(';')
+        .any(|entry| entry.trim_end_matches(['\\', '/']) == normalized)
+    {
+        return;
+    }
+    std::env::set_var("PATH", format!("{normalized};{current}"));
+}
+
+#[cfg(windows)]
+fn broadcast_windows_environment_change() {
+    let script = r#"
+Add-Type -Namespace Win32 -Name EnvNotify -MemberDefinition @'
+[DllImport("user32.dll", CharSet=CharSet.Auto)]
+public static extern System.IntPtr SendMessageTimeout(
+    System.IntPtr hWnd, int Msg, System.IntPtr wParam, string lParam,
+    int fuFlags, int uTimeout, out System.IntPtr lpdwResult);
+'@
+$result = [System.IntPtr]::Zero
+[Win32.EnvNotify]::SendMessageTimeout(
+    [System.IntPtr]0xffff, 0x001A, [System.IntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
+"#;
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .status();
 }
 
 fn is_current_binary(path: &Path) -> Result<bool> {
