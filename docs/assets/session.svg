@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" fill="none">
   <defs>
     <linearGradient id="bg2" x1="0" y1="0" x2="760" y2="420" gradientUnits="userSpaceOnUse">
@@ -7,36 +8,25 @@
   </defs>
   <rect width="760" height="420" rx="12" fill="url(#bg2)"/>
   <rect x="1" y="1" width="758" height="418" rx="11" stroke="#1e3a1e" stroke-width="2"/>
-
   <circle cx="24" cy="24" r="6" fill="#ff5f57"/>
   <circle cx="44" cy="24" r="6" fill="#febc2e"/>
   <circle cx="64" cy="24" r="6" fill="#28c840"/>
-  <text x="90" y="28" font-family="ui-monospace, monospace" font-size="12" fill="#4a6a4a">~/projects/my-app  onemini</text>
-
-  <!-- user -->
-  <text x="32" y="68" font-family="ui-monospace, monospace" font-size="13" fill="#7fff5a">you :</text>
-  <text x="80" y="68" font-family="ui-monospace, monospace" font-size="13" fill="#d4ffd4">� src @	 .rs ��v�� main.rs ӄ</text>
-
-  <!-- tool call -->
+  <text x="90" y="28" font-family="ui-monospace, monospace" font-size="12" fill="#4a6a4a">~/projects/my-app - onemini</text>
+  <text x="32" y="68" font-family="ui-monospace, monospace" font-size="13" fill="#7fff5a">you &gt;</text>
+  <text x="80" y="68" font-family="ui-monospace, monospace" font-size="13" fill="#d4ffd4">搜索 src 目录下的 .rs 文件，先看 main.rs 结构</text>
   <rect x="32" y="88" width="696" height="56" rx="6" fill="#0f1a0f" stroke="#2a4a2a"/>
-  <text x="44" y="108" font-family="ui-monospace, monospace" font-size="12" fill="#5a8a5a">� glob  src/**/*.rs</text>
-  <text x="44" y="128" font-family="ui-monospace, monospace" font-size="12" fill="#4a6a4a">  � 12 files found</text>
-
-  <!-- tool call 2 -->
+  <text x="44" y="108" font-family="ui-monospace, monospace" font-size="12" fill="#5a8a5a">-&gt; glob  src/**/*.rs</text>
+  <text x="44" y="128" font-family="ui-monospace, monospace" font-size="12" fill="#4a6a4a">  ok 12 files found</text>
   <rect x="32" y="154" width="696" height="56" rx="6" fill="#0f1a0f" stroke="#2a4a2a"/>
-  <text x="44" y="174" font-family="ui-monospace, monospace" font-size="12" fill="#5a8a5a">� read  src/main.rs</text>
-  <text x="44" y="194" font-family="ui-monospace, monospace" font-size="12" fill="#4a6a4a">  � 48 lines</text>
-
-  <!-- assistant -->
-  <text x="32" y="238" font-family="ui-monospace, monospace" font-size="13" fill="#39ff14">onemini :</text>
-  <text x="120" y="238" font-family="ui-monospace, monospace" font-size="13" fill="#d4ffd4">~0 12 * Rust ���main.rs /e�</text>
-  <text x="120" y="260" font-family="ui-monospace, monospace" font-size="12" fill="#8ab88a">" ���Mn</text>
-  <text x="120" y="280" font-family="ui-monospace, monospace" font-size="12" fill="#8ab88a">" � CLI P}�</text>
-  <text x="120" y="300" font-family="ui-monospace, monospace" font-size="12" fill="#8ab88a">" /�e�L�</text>
-
-  <!-- permission prompt -->
+  <text x="44" y="174" font-family="ui-monospace, monospace" font-size="12" fill="#5a8a5a">-&gt; read  src/main.rs</text>
+  <text x="44" y="194" font-family="ui-monospace, monospace" font-size="12" fill="#4a6a4a">  ok 48 lines</text>
+  <text x="32" y="238" font-family="ui-monospace, monospace" font-size="13" fill="#39ff14">onemini &gt;</text>
+  <text x="120" y="238" font-family="ui-monospace, monospace" font-size="13" fill="#d4ffd4">共 12 个 Rust 源文件，main.rs 为入口。</text>
+  <text x="120" y="260" font-family="ui-monospace, monospace" font-size="12" fill="#8ab88a">- 建议先拆分 lib.rs 模块</text>
+  <text x="120" y="280" font-family="ui-monospace, monospace" font-size="12" fill="#8ab88a">- 补充 CLI 集成测试</text>
+  <text x="120" y="300" font-family="ui-monospace, monospace" font-size="12" fill="#8ab88a">- 运行 cargo test 验证</text>
   <rect x="32" y="320" width="696" height="72" rx="6" fill="#1a1208" stroke="#6a4a1a"/>
-  <text x="44" y="342" font-family="ui-monospace, monospace" font-size="12" fill="#febc2e">� CPn�write src/lib.rs</text>
-  <text x="44" y="364" font-family="ui-monospace, monospace" font-size="12" fill="#c4a46a">  [1] A�  [2] ��  [3] ��A�</text>
-  <text x="44" y="384" font-family="ui-monospace, monospace" font-size="12" fill="#8a7a5a">  ( /mode bCP!</text>
+  <text x="44" y="342" font-family="ui-monospace, monospace" font-size="12" fill="#febc2e">! 需要确认: write src/lib.rs</text>
+  <text x="44" y="364" font-family="ui-monospace, monospace" font-size="12" fill="#c4a46a">  [1] 允许  [2] 拒绝  [3] 始终允许</text>
+  <text x="44" y="384" font-family="ui-monospace, monospace" font-size="12" fill="#8a7a5a">  输入 /mode 切换权限模式</text>
 </svg>

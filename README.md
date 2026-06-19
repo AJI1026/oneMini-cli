@@ -1,7 +1,7 @@
 # OneMini CLI
 
 <p align="center">
-  <img src="docs/assets/hero.svg" alt="OneMini CLI 启动界面" width="640"/>
+  <img src="./docs/assets/hero.png" alt="OneMini CLI 启动界面" width="640"/>
 </p>
 
 **终端 AI 编程助手** — 在同一轮会话里读写代码、搜索仓库、执行命令、调试与重构，并保持多轮上下文。
@@ -43,7 +43,7 @@ onemini -p "运行 cargo test 并解释失败原因"
 ```
 
 <p align="center">
-  <img src="docs/assets/session.svg" alt="交互会话示例" width="700"/>
+  <img src="./docs/assets/session.png" alt="交互会话示例" width="700"/>
 </p>
 
 **配置 API**（也可随时执行）：
@@ -95,7 +95,7 @@ onemini config set --api-key "sk-..." --base-url "https://api.deepseek.com" --mo
 ## UI 主题
 
 <p align="center">
-  <img src="docs/assets/themes.svg" alt="三种 UI 主题" width="700"/>
+  <img src="./docs/assets/themes.png" alt="三种 UI 主题" width="700"/>
 </p>
 
 ```toml
@@ -156,6 +156,7 @@ onemini update --version 0.1.1
 cargo build --release --locked   # 编译
 cargo install --path .           # 安装到 ~/.cargo/bin/
 cargo run --release -- --help    # 开发调试
+./scripts/generate-readme-images.sh  # 从 docs/assets/*.svg 生成 README 用 PNG
 ```
 
 ---
