@@ -19,7 +19,7 @@
   <circle cx="24" cy="24" r="6" fill="#ff5f57"/>
   <circle cx="44" cy="24" r="6" fill="#febc2e"/>
   <circle cx="64" cy="24" r="6" fill="#28c840"/>
-  <text x="90" y="28" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#4a6a4a">onemini - zsh</text>
+  <text x="90" y="28" font-family="ui-monospace, monospace" font-size="12" fill="#4a6a4a">onemini - zsh</text>
   <rect x="40" y="52" width="320" height="28" rx="4" fill="#0d1a0d" stroke="#2a4a2a"/>
   <text x="52" y="71" font-family="ui-monospace, monospace" font-size="13" fill="#7fff5a">* Welcome to oneMini</text>
   <g filter="url(#shadow)" font-family="ui-monospace, monospace" font-size="14" font-weight="bold">

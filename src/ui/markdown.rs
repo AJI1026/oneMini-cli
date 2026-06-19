@@ -194,6 +194,8 @@ mod tests {
 
     #[test]
     fn table_renders_without_pipes() {
+        let _g = crate::ui::theme::theme_test_guard();
+        crate::ui::set_theme(crate::ui::ThemeId::Modern);
         let md = "| 列A | 列B |\n| --- | --- |\n| 1 | 2 |";
         let rendered = render_markdown(md);
         assert!(!rendered.contains('|'));
@@ -203,6 +205,8 @@ mod tests {
 
     #[test]
     fn table_renders_cjk_weather_rows() {
+        let _g = crate::ui::theme::theme_test_guard();
+        crate::ui::set_theme(crate::ui::ThemeId::Modern);
         let md = "\
 | 时段 | 天气 | 温度 |\n\
 | --- | --- | --- |\n\

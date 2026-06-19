@@ -505,10 +505,12 @@ mod tests {
 
     #[test]
     fn content_lines_prefix_first_line_only() {
+        let _g = crate::ui::theme::theme_test_guard();
+        crate::ui::set_theme(crate::ui::ThemeId::Modern);
         let lines = content_display_lines("第一行\n第二行");
-        assert!(lines[0].contains("OneMini"));
+        assert!(lines[0].contains("onemini"));
         assert!(lines[0].contains('第'));
-        assert!(!lines[1].contains("OneMini"));
+        assert!(!lines[1].contains("onemini"));
         assert_eq!(lines[1], "第二行");
     }
 

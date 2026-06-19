@@ -1,5 +1,7 @@
 mod banner;
 mod markdown;
+mod palette;
+mod panel;
 mod plan;
 mod sanitize;
 mod table;
@@ -38,27 +40,14 @@ pub fn block_warning(msg: &str) -> String {
     format!("{} {}", theme::warn_icon(), theme::warning(msg))
 }
 
-/// 工具调用卡片（视觉隔离）
+/// 工具调用卡片（视觉隔离，对齐 session 配图）
 pub fn tool_call(name: &str, detail: &str) -> String {
-    format!(
-        "\n  {} {} {}\n  {} {} {}\n",
-        theme::soft(theme::border_top_left()),
-        theme::border_horizontal().repeat(2),
-        format!("{} {}", theme::tool_icon(), theme::primary_light(name)),
-        theme::soft(theme::border_vertical()),
-        " ",
-        theme::muted_strong(detail)
-    )
+    format!("\n{}\n", panel::render_tool_panel(name, detail, None))
 }
 
-/// 工具输出预览（卡片收尾）
+/// 工具输出预览（卡片第二行）
 pub fn tool_output_preview(text: &str) -> String {
-    format!(
-        "  {} {} {}\n",
-        theme::soft(theme::border_bottom_left()),
-        theme::border_horizontal().repeat(2),
-        theme::muted_strong(text)
-    )
+    format!("\n{}\n", panel::render_tool_result(text))
 }
 
 pub fn reasoning_header() -> String {
@@ -161,11 +150,11 @@ pub fn task_summary_block(summary: &str) -> String {
 }
 
 pub fn assistant_prefix() -> String {
-    theme::primary("OneMini")
+    theme::assistant_prompt_prefix()
 }
 
 pub fn user_prefix() -> String {
-    theme::accent("You")
+    theme::user_prompt_prefix()
 }
 
 pub fn dim(text: &str) -> String {
@@ -217,8 +206,9 @@ pub enum PermissionChoice {
     Always,
 }
 
-/// 权限确认：列表选择允许 / 拒绝 / 始终允许
+/// 权限确认：先打印配图风格警告面板，再列表选择
 pub fn select_permission(tool_name: &str, detail: &str) -> Result<PermissionChoice, dialoguer::Error> {
+    println!("{}", panel::render_permission_panel(tool_name, detail));
     let prompt = if detail.is_empty() {
         format!("允许执行 {tool_name}？")
     } else {
