@@ -5,6 +5,12 @@ use pulldown_cmark::{
 
 use super::{table, theme};
 
+#[derive(Debug, Clone, Copy)]
+struct ListState {
+    start: u64,
+    next_index: u64,
+}
+
 /// 将 Markdown 渲染为带 ANSI 样式的终端文本（高对比度主题）。
 pub fn render_markdown(input: &str) -> String {
     let cleaned = super::sanitize::sanitize_final(input);
@@ -19,6 +25,7 @@ fn render_markdown_inner(input: &str) -> String {
     let mut italic = false;
     let mut in_code_block = false;
     let mut list_depth = 0usize;
+    let mut list_stack: Vec<ListState> = Vec::new();
     let mut link_url = String::new();
     let mut heading_level: Option<HeadingLevel> = None;
 
@@ -30,10 +37,24 @@ fn render_markdown_inner(input: &str) -> String {
         match event {
             Event::Start(tag) => match tag {
                 Tag::Heading { level, .. } => heading_level = Some(level),
-                Tag::List(_) => list_depth += 1,
+                Tag::List(start) => {
+                    list_depth += 1;
+                    list_stack.push(ListState {
+                        start: start.unwrap_or(1),
+                        next_index: 0,
+                    });
+                }
                 Tag::Item => {
                     out.push_str(&"  ".repeat(list_depth.saturating_sub(1)));
-                    out.push_str(&format!("{} ", theme::list_bullet()));
+                    let marker = list_stack
+                        .last_mut()
+                        .map(|state| {
+                            let n = state.start + state.next_index;
+                            state.next_index += 1;
+                            theme::list_number(n)
+                        })
+                        .unwrap_or_else(|| theme::list_number(1));
+                    out.push_str(&format!("{marker} "));
                 }
                 Tag::BlockQuote(_) => out.push_str(&theme::soft(&format!("{} ", theme::border_vertical()))),
                 Tag::CodeBlock(kind) => {
@@ -83,7 +104,10 @@ fn render_markdown_inner(input: &str) -> String {
                     in_code_block = false;
                     out.push('\n');
                 }
-                TagEnd::List(_) => list_depth = list_depth.saturating_sub(1),
+                TagEnd::List(_) => {
+                    list_depth = list_depth.saturating_sub(1);
+                    list_stack.pop();
+                }
                 TagEnd::Item => out.push('\n'),
                 TagEnd::Link => {
                     if !link_url.is_empty() {
@@ -181,6 +205,49 @@ impl MdTable {
     }
 }
 
+fn style_text(
+    text: &str,
+    bold: bool,
+    italic: bool,
+    in_code_block: bool,
+    heading: Option<HeadingLevel>,
+) -> String {
+    if in_code_block {
+        if text.starts_with('+') {
+            return theme::diff_add(text);
+        }
+        if text.starts_with('-') {
+            return theme::diff_remove(text);
+        }
+        return theme::muted_strong(text);
+    }
+
+    let mut styled = text.to_string();
+    if let Some(level) = heading {
+        styled = match level {
+            HeadingLevel::H1 => theme::primary(&styled),
+            HeadingLevel::H2 => theme::primary_light(&styled),
+            HeadingLevel::H3 | HeadingLevel::H4 => theme::accent(&styled),
+            _ => theme::muted_strong(&styled),
+        };
+        return styled;
+    }
+
+    if bold && italic {
+        if theme::colors_enabled() {
+            styled.bright_cyan().bold().italic().to_string()
+        } else {
+            styled
+        }
+    } else if bold {
+        theme::primary_light(&styled)
+    } else if italic {
+        theme::thinking_detail(&styled)
+    } else {
+        styled
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::render_markdown;
@@ -233,47 +300,41 @@ mod tests {
         assert!(!rendered.contains("**"));
         assert!(rendered.contains("成都今日天气"));
     }
-}
 
-fn style_text(
-    text: &str,
-    bold: bool,
-    italic: bool,
-    in_code_block: bool,
-    heading: Option<HeadingLevel>,
-) -> String {
-    if in_code_block {
-        if text.starts_with('+') {
-            return theme::diff_add(text);
-        }
-        if text.starts_with('-') {
-            return theme::diff_remove(text);
-        }
-        return theme::muted_strong(text);
+    #[test]
+    fn list_with_bold_renders_without_markers() {
+        let _g = crate::ui::theme::theme_test_guard();
+        crate::ui::set_theme(crate::ui::ThemeId::Modern);
+        let md = "- **编写代码** — 创建新文件、实现新功能\n- **调试** — 复现问题";
+        let rendered = render_markdown(md);
+        assert!(!rendered.contains("**"), "raw markdown leaked: {rendered}");
+        assert!(rendered.contains("编写代码"));
+        assert!(rendered.contains("调试"));
+        assert!(rendered.contains("1."));
+        assert!(rendered.contains("2."));
+        assert!(!rendered.lines().any(|l| l.trim_start().starts_with('*')));
     }
 
-    let mut styled = text.to_string();
-    if let Some(level) = heading {
-        styled = match level {
-            HeadingLevel::H1 => theme::primary(&styled),
-            HeadingLevel::H2 => theme::primary_light(&styled),
-            HeadingLevel::H3 | HeadingLevel::H4 => theme::accent(&styled),
-            _ => theme::muted_strong(&styled),
-        };
-        return styled;
+    #[test]
+    fn unordered_list_uses_arabic_numbers() {
+        let _g = crate::ui::theme::theme_test_guard();
+        crate::ui::set_theme(crate::ui::ThemeId::GameBoy);
+        let md = "- 第一项\n- 第二项\n- 第三项";
+        let rendered = render_markdown(md);
+        assert!(rendered.contains("1."));
+        assert!(rendered.contains("2."));
+        assert!(rendered.contains("3."));
+        assert!(!rendered.lines().any(|l| l.trim_start().starts_with('*')));
     }
 
-    if bold && italic {
-        if theme::colors_enabled() {
-            styled.bright_cyan().bold().italic().to_string()
-        } else {
-            styled
-        }
-    } else if bold {
-        theme::primary_light(&styled)
-    } else if italic {
-        theme::thinking_detail(&styled)
-    } else {
-        styled
+    #[test]
+    fn asterisk_list_uses_arabic_numbers() {
+        let _g = crate::ui::theme::theme_test_guard();
+        crate::ui::set_theme(crate::ui::ThemeId::GameBoy);
+        let md = "* 读取文件\n* 搜索代码";
+        let rendered = render_markdown(md);
+        assert!(rendered.contains("1."), "rendered:\n{rendered}");
+        assert!(rendered.contains("2."), "rendered:\n{rendered}");
+        assert!(!rendered.lines().any(|l| l.trim_start().starts_with('*')));
     }
 }

@@ -369,11 +369,8 @@ pub fn panel_title(text: &str) -> String {
     }
 }
 
-pub fn list_bullet() -> String {
-    match current_theme() {
-        ThemeId::Modern => accent("•"),
-        ThemeId::GameBoy | ThemeId::Nes => accent("*"),
-    }
+pub fn list_number(n: u64) -> String {
+    accent(&format!("{n}."))
 }
 
 pub fn use_retro_table() -> bool {

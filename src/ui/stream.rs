@@ -1,13 +1,14 @@
 use std::io::{self, Write};
 
-use crate::ui::{self, render_markdown, sanitize_final, sanitize_stream_delta};
+use crate::ui::{
+    self, render_markdown, sanitize_final, sanitize_stream_delta,
+    terminal::{clear_visual_rows, terminal_width, total_visual_rows, truncate_visible, visual_rows},
+};
 
 /// 思考区最多展示的行数（不含标题与折叠提示，仅展开模式）
 const MAX_VISIBLE_REASONING_LINES: usize = 3;
 /// 单行展示的最大字符数
 const MAX_REASONING_LINE_CHARS: usize = 100;
-/// 折叠模式摘要最大字符数
-const COLLAPSED_SUMMARY_CHARS: usize = 48;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StreamPhase {
@@ -28,9 +29,9 @@ pub struct StreamRenderer {
     /// true = 展开样式；false = 不显示思考过程
     show_reasoning: bool,
     spinner_frame: usize,
-    /// 上次绘制的思考块占用的终端行数
+    /// 上次绘制的思考块占用的终端可视行数（含软换行）
     reasoning_lines_drawn: usize,
-    /// 等待动画占用的终端行数
+    /// 等待动画占用的终端可视行数
     waiting_lines_drawn: usize,
 }
 
@@ -110,7 +111,7 @@ impl StreamRenderer {
             self.content_header = true;
         }
         print!("{cleaned}");
-        self.content_lines_drawn = count_content_lines(&self.content_buf);
+        self.content_lines_drawn = streamed_content_visual_rows(&self.content_buf);
 
         io::stdout().flush().ok();
     }
@@ -130,7 +131,7 @@ impl StreamRenderer {
             let raw = final_content.unwrap_or(&self.content_buf);
             if !raw.trim().is_empty() {
                 let lines = content_display_lines(&render_markdown(raw));
-                clear_content_block(self.content_lines_drawn);
+                clear_visual_rows(self.content_lines_drawn);
                 print_rendered_content(&lines);
             }
             println!();
@@ -263,31 +264,28 @@ fn print_rendered_content(lines: &[String]) {
     }
 }
 
-/// 流式正文行数（首行含助手前缀，后续按换行计）
-fn count_content_lines(content: &str) -> usize {
+/// 流式正文占用的终端可视行数（首行含助手前缀，含软换行）
+fn streamed_content_visual_rows(content: &str) -> usize {
     if content.is_empty() {
-        0
-    } else {
-        1 + content.matches('\n').count()
+        return 0;
     }
-}
-
-/// 清除流式输出的原始 Markdown 块，便于 finish 时原地重绘
-fn clear_content_block(line_count: usize) {
-    if line_count == 0 {
-        return;
+    let term_w = terminal_width();
+    let prefix = format!("{} ", ui::assistant_prefix());
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.is_empty() {
+        return visual_rows(&format!("{prefix}{content}"), term_w);
     }
-    print!("\r");
-    for i in 0..line_count {
-        print!("\x1b[2K");
-        if i + 1 < line_count {
-            print!("\x1b[1A");
-        }
+    let mut total = visual_rows(&format!("{prefix}{}", lines[0]), term_w);
+    for line in &lines[1..] {
+        total += visual_rows(line, term_w);
     }
+    total
 }
 
 fn build_collapsed_spinner_line(buf: &str, spinner_frame: usize) -> String {
-    let summary = collapsed_reasoning_summary(buf);
+    let prefix_width = ui::visible_width(&ui::thinking_spinner_line(spinner_frame, ""));
+    let max_summary_cols = terminal_width().saturating_sub(prefix_width);
+    let summary = collapsed_reasoning_summary(buf, max_summary_cols);
     if summary.is_empty() {
         ui::thinking_spinner_line(spinner_frame, "正在分析…")
     } else {
@@ -295,20 +293,13 @@ fn build_collapsed_spinner_line(buf: &str, spinner_frame: usize) -> String {
     }
 }
 
-fn collapsed_reasoning_summary(buf: &str) -> String {
+fn collapsed_reasoning_summary(buf: &str, max_cols: usize) -> String {
     let t = buf.trim();
-    if t.is_empty() {
+    if t.is_empty() || max_cols == 0 {
         return String::new();
     }
     let last = t.lines().last().unwrap_or(t).trim();
-    if last.chars().count() <= COLLAPSED_SUMMARY_CHARS {
-        last.to_string()
-    } else {
-        format!(
-            "{}…",
-            last.chars().take(COLLAPSED_SUMMARY_CHARS).collect::<String>()
-        )
-    }
+    truncate_visible(last, max_cols)
 }
 
 fn build_reasoning_display(
@@ -377,56 +368,35 @@ fn normalize_reasoning_lines(buf: &str) -> Vec<String> {
     lines
 }
 
-/// 折叠模式：单行原地重绘（光标仍在当前行，勿 `\x1b[nA` 上移）
-fn redraw_single_line(prev_line_count: &mut usize, line: &str) {
+/// 折叠模式：单行原地重绘（按终端可视行数清除，避免软换行残留）
+fn redraw_single_line(prev_rows: &mut usize, line: &str) {
+    clear_visual_rows(*prev_rows);
     print!("\x1b[2K\r{line}");
-    *prev_line_count = 1;
+    *prev_rows = visual_rows(line, terminal_width());
 }
 
 /// 原地重绘多行块（仅用于思考区展开模式）
-fn redraw_lines(prev_line_count: usize, lines: &[String]) -> usize {
-    let new_count = lines.len().max(1);
+fn redraw_lines(prev_rows: usize, lines: &[String]) -> usize {
+    let term_w = terminal_width();
+    clear_visual_rows(prev_rows);
 
-    // 上次绘制后光标在块末行末尾，只需上移 (n-1) 行回到块首
-    if prev_line_count > 1 {
-        print!("\x1b[{}A", prev_line_count - 1);
+    if lines.is_empty() {
+        print!("\x1b[2K\r");
+        return 1;
     }
 
     for (i, line) in lines.iter().enumerate() {
         print!("\x1b[2K\r{line}");
-        if i + 1 < new_count {
+        if i + 1 < lines.len() {
             println!();
         }
     }
 
-    if prev_line_count > new_count {
-        let extra = prev_line_count - new_count;
-        for _ in 0..extra {
-            println!();
-            print!("\x1b[2K\r");
-        }
-        print!("\x1b[{}A", extra);
-    }
-
-    new_count
+    total_visual_rows(lines, term_w)
 }
 
-fn clear_reasoning_block(line_count: usize) {
-    if line_count == 0 {
-        return;
-    }
-    if line_count == 1 {
-        print!("\x1b[2K\r");
-        return;
-    }
-    print!("\x1b[{}A", line_count - 1);
-    for i in 0..line_count {
-        print!("\x1b[2K\r");
-        if i + 1 < line_count {
-            println!();
-        }
-    }
-    print!("\x1b[{}A", line_count - 1);
+fn clear_reasoning_block(rows: usize) {
+    clear_visual_rows(rows);
 }
 
 /// 流式输出结束后整理终端，避免残留 spinner 与 readline 提示符重叠
@@ -445,7 +415,7 @@ pub fn print_diff_preview(diff: &str) {
 mod tests {
     use super::{
         build_collapsed_spinner_line, build_reasoning_display, content_display_lines,
-        count_content_lines, normalize_reasoning_lines, MAX_VISIBLE_REASONING_LINES,
+        normalize_reasoning_lines, streamed_content_visual_rows, MAX_VISIBLE_REASONING_LINES,
     };
 
     #[test]
@@ -515,9 +485,19 @@ mod tests {
     }
 
     #[test]
-    fn count_content_lines_handles_newlines() {
-        assert_eq!(count_content_lines(""), 0);
-        assert_eq!(count_content_lines("单行"), 1);
-        assert_eq!(count_content_lines("a\nb\nc"), 3);
+    fn streamed_content_rows_counts_wrapped_first_line() {
+        let _g = crate::ui::theme::theme_test_guard();
+        crate::ui::set_theme(crate::ui::ThemeId::Modern);
+        let long = "a".repeat(120);
+        assert!(streamed_content_visual_rows(&long) >= 2);
+    }
+
+    #[test]
+    fn streamed_content_rows_counts_newlines() {
+        let _g = crate::ui::theme::theme_test_guard();
+        crate::ui::set_theme(crate::ui::ThemeId::Modern);
+        assert_eq!(streamed_content_visual_rows(""), 0);
+        assert_eq!(streamed_content_visual_rows("单行"), 1);
+        assert!(streamed_content_visual_rows("a\nb\nc") >= 3);
     }
 }

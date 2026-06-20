@@ -8,6 +8,7 @@ use super::theme;
 /// 面板类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelKind {
+    Welcome,
     Tool,
     Warning,
 }
@@ -19,6 +20,7 @@ fn panel_bg_enabled() -> bool {
 
 fn fill_for(kind: PanelKind, p: Palette) -> Rgb {
     match kind {
+        PanelKind::Welcome => p.panel_fill,
         PanelKind::Tool => p.tool_fill,
         PanelKind::Warning => p.warn_fill,
     }
@@ -143,17 +145,18 @@ pub fn render_window_chrome(title: &str) -> String {
     format!("{close} {min} {max}  {title_styled}")
 }
 
-/// Welcome 条：`* Welcome to oneMini`（纯文字，无填充面板）
+/// Welcome 条：`* Welcome to oneMini`（对齐 hero.svg 卡片填充）
 pub fn render_welcome_strip() -> String {
     let p = theme::current_palette();
-    if theme::colors_enabled() {
+    let line = if theme::colors_enabled() {
         format!(
             "* {}",
             "Welcome to oneMini".truecolor(p.glow_mid.0, p.glow_mid.1, p.glow_mid.2)
         )
     } else {
         "* Welcome to oneMini".to_string()
-    }
+    };
+    render_panel(PanelKind::Welcome, &[&line], line.chars().count() + 2)
 }
 
 /// 工具调用面板
@@ -237,9 +240,9 @@ pub fn render_permission_panel(tool_name: &str, detail: &str) -> String {
     )
 }
 
-/// 工具调用面板
+#[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{render_panel, render_welcome_strip, render_window_chrome, PanelKind};
     use crate::ui::theme::{self, ThemeId};
 
     #[test]
