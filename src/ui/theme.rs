@@ -122,23 +122,13 @@ fn paint_bold(rgb: Rgb, text: &str) -> String {
     text.truecolor(rgb.0, rgb.1, rgb.2).bold().to_string()
 }
 
-fn paint_on_bg_bold(fg: Rgb, bg: Rgb, text: &str) -> String {
-    text.truecolor(fg.0, fg.1, fg.2)
-        .on_truecolor(bg.0, bg.1, bg.2)
-        .bold()
-        .to_string()
-}
-
 /// 主色：标题、助手标识
 pub fn primary(text: &str) -> String {
     if !colors_enabled() {
         return plain(text);
     }
     let p = current_palette();
-    match current_theme() {
-        ThemeId::Nes => paint_on_bg_bold(p.glow_hi, p.bg, text),
-        _ => paint_bold(p.glow_hi, text),
-    }
+    paint_bold(p.glow_hi, text)
 }
 
 /// 主色浅色：工具名、代码、链接
