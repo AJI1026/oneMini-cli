@@ -32,7 +32,7 @@
     <text x="40" y="232" fill="url(#glow)"> ##      ##   ####   ##    ##  ####   </text>
     <text x="40" y="250" fill="#39ff14"> ###    ###   ####   ###   ##  ####   </text>
   </g>
-  <text x="420" y="120" font-family="ui-monospace, monospace" font-size="13" fill="#7fff5a">OneMini CLI v0.1.1</text>
+  <text x="420" y="120" font-family="ui-monospace, monospace" font-size="13" fill="#7fff5a">OneMini CLI v0.1.4</text>
   <text x="420" y="142" font-family="ui-monospace, monospace" font-size="12" fill="#5a8a5a">终端 AI 编程助手</text>
   <text x="420" y="164" font-family="ui-monospace, monospace" font-size="12" fill="#4a6a4a">model: deepseek-chat</text>
   <text x="420" y="186" font-family="ui-monospace, monospace" font-size="12" fill="#4a6a4a">theme: modern</text>
