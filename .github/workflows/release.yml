@@ -31,7 +31,7 @@ jobs:
             pack: win-x64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Ensure brand icons
         shell: bash
@@ -121,7 +121,7 @@ jobs:
           }
           Remove-Item -Recurse -Force $packDir
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ env.BINARY_NAME }}-${{ matrix.pack }}
           path: |
@@ -133,11 +133,11 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
