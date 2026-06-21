@@ -9,64 +9,21 @@ use super::theme;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// 单字母块：5 行 # 字，固定列宽（无投影）
-const LOGO_ROWS: usize = 5;
-const LETTER_W: usize = 6;
-const LOGO_LETTER_GAP: usize = 2;
-/// ONE 与 MINI 之间的间距
-const LOGO_WORD_GAP: usize = 3;
+/// ANSI Shadow 风格块字（figlet "OneMini"）
+const LOGO_ROWS: usize = 6;
+
+/// figlet -f "ANSI Shadow" OneMini
+const LOGO_LINES: [&'static str; LOGO_ROWS] = [
+    " ██████╗ ███╗   ██╗███████╗███╗   ███╗██╗███╗   ██╗██╗",
+    "██╔═══██╗████╗  ██║██╔════╝████╗ ████║██║████╗  ██║██║",
+    "██║   ██║██╔██╗ ██║█████╗  ██╔████╔██║██║██╔██╗ ██║██║",
+    "██║   ██║██║╚██╗██║██╔══╝  ██║╚██╔╝██║██║██║╚██╗██║██║",
+    "╚██████╔╝██║ ╚████║███████╗██║ ╚═╝ ██║██║██║ ╚████║██║",
+    " ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝",
+];
+
 /// 渐变扫光帧数
 const GRADIENT_SHIMMER_FRAMES: u32 = 10;
-
-type LogoLetter = [&'static str; LOGO_ROWS];
-
-/// O — 6 列空心圆角
-const LETTER_O: LogoLetter = [
-    " #### ",
-    "#    #",
-    "#    #",
-    "#    #",
-    " #### ",
-];
-
-/// N — 6 列
-const LETTER_N: LogoLetter = [
-    "#    #",
-    "##   #",
-    "# #  #",
-    "#  # #",
-    "#   ##",
-];
-
-/// E — 6 列
-const LETTER_E: LogoLetter = [
-    "######",
-    "#     ",
-    "##### ",
-    "#     ",
-    "######",
-];
-
-/// M — 6 列
-const LETTER_M: LogoLetter = [
-    "#    #",
-    "##  ##",
-    "# ## #",
-    "#    #",
-    "#    #",
-];
-
-/// I — 6 列
-const LETTER_I: LogoLetter = [
-    "  ##  ",
-    "  ##  ",
-    "  ##  ",
-    "  ##  ",
-    "  ##  ",
-];
-
-const LINE_ONE: &[LogoLetter] = &[LETTER_O, LETTER_N, LETTER_E];
-const LINE_MINI: &[LogoLetter] = &[LETTER_M, LETTER_I, LETTER_N, LETTER_I];
 
 /// 启动 Banner 上下文（REPL 传入完整信息，config 引导传默认空值）
 #[derive(Debug, Clone, Default)]
@@ -133,33 +90,8 @@ fn render_banner_header() -> Vec<String> {
     ]
 }
 
-/// 横向拼接字母（固定列宽，避免行间错位）
-fn compose_logo_letters(letters: &[LogoLetter], gap: usize) -> Vec<String> {
-    let mut rows = vec![String::new(); LOGO_ROWS];
-    for (idx, letter) in letters.iter().enumerate() {
-        for r in 0..LOGO_ROWS {
-            if idx > 0 {
-                rows[r].push_str(&" ".repeat(gap));
-            }
-            let raw = letter[r];
-            let visible = raw.chars().count();
-            rows[r].push_str(raw);
-            if visible < LETTER_W {
-                rows[r].push_str(&" ".repeat(LETTER_W - visible));
-            }
-        }
-    }
-    rows
-}
-
-/// ONE MINI 同一组 5 行横向排列
 fn logo_lines() -> Vec<String> {
-    let one = compose_logo_letters(LINE_ONE, LOGO_LETTER_GAP);
-    let mini = compose_logo_letters(LINE_MINI, LOGO_LETTER_GAP);
-    one.into_iter()
-        .zip(mini)
-        .map(|(o, m)| format!("{o}{}{m}", " ".repeat(LOGO_WORD_GAP)))
-        .collect()
+    LOGO_LINES.iter().map(|s| s.to_string()).collect()
 }
 
 fn render_banner_body(info: &BannerInfo<'_>) -> Vec<String> {
@@ -312,50 +244,33 @@ mod tests {
         let out = render_banner(&BannerInfo::default());
         assert!(out.contains("Welcome to oneMini"));
         assert!(out.contains("OneMini CLI"));
-        assert!(out.contains("#    #"));
-        assert!(out.contains("######"));
+        assert!(out.contains("██████╗"));
+        assert!(out.contains("╚═════╝"));
     }
 
     #[test]
-    fn one_line_is_wide_enough() {
-        let lines = compose_logo_letters(LINE_ONE, LOGO_LETTER_GAP);
-        assert!(
-            lines[0].chars().count() >= 18,
-            "ONE 首行宽度 {} 不足",
-            lines[0].chars().count()
-        );
-    }
-
-    #[test]
-    fn compose_two_line_logo() {
+    fn logo_has_six_unicode_rows() {
         let lines = logo_lines();
         assert_eq!(lines.len(), LOGO_ROWS);
-        assert!(lines[0].contains(" #### "));
-        assert!(lines[0].contains("  ##  "));
+        assert!(lines.iter().all(|l| l.chars().any(|c| c != ' ')));
     }
 
     #[test]
-    fn compose_logo_letters_gap() {
-        let one = compose_logo_letters(&[LETTER_O], 0);
-        let two = compose_logo_letters(&[LETTER_O, LETTER_I], LOGO_LETTER_GAP);
-        assert!(two[0].chars().count() > one[0].chars().count());
-    }
-
-    #[test]
-    fn logo_has_five_hash_rows() {
+    fn logo_spells_onemini() {
         let lines = logo_lines();
         assert_eq!(lines.len(), LOGO_ROWS);
-        assert!(lines.iter().all(|l| l.contains('#')));
+        // ANSI Shadow：首行含 O 左缘，末行含 i 右缘
+        assert!(lines[0].contains("██████╗"));
+        assert!(lines[5].contains("╚═══╝"));
     }
 
     #[test]
-    fn compact_banner_shows_one_and_mini() {
+    fn compact_banner_shows_onemini_art() {
         let _g = theme::theme_test_guard();
         theme::set_theme(theme::ThemeId::GameBoy);
         let compact = logo_lines();
         assert_eq!(compact.len(), LOGO_ROWS);
-        assert!(compact[0].contains(" #### "));
-        assert!(compact[0].contains("  ##  "));
+        assert!(compact[0].contains("██████╗"));
 
         let out = render_banner(&BannerInfo::default());
         assert!(out.contains("Welcome to oneMini"));
@@ -369,18 +284,9 @@ mod tests {
         theme::set_theme(theme::ThemeId::Modern);
         let out = render_banner(&BannerInfo::default());
         let lines: Vec<_> = out.lines().collect();
-        let logo_idx = lines.iter().position(|l| l.contains(" #### ")).unwrap();
+        let logo_idx = lines.iter().position(|l| l.contains("██████╗")).unwrap();
         let meta_idx = lines.iter().position(|l| l.contains("OneMini CLI")).unwrap();
         assert!(meta_idx > logo_idx, "描述文字应在 Logo 下方");
-    }
-
-    #[test]
-    fn letters_have_fixed_width() {
-        for letter in [LETTER_O, LETTER_N, LETTER_E, LETTER_M, LETTER_I] {
-            for row in letter {
-                assert_eq!(row.chars().count(), LETTER_W, "行宽不一致: {row}");
-            }
-        }
     }
 
     #[test]
