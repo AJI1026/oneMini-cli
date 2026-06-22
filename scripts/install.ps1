@@ -3,7 +3,7 @@
 #   irm https://raw.githubusercontent.com/AJI1026/OneMini-CLI/main/scripts/install.ps1 | iex
 #   $env:ONEMINI_VERSION = "0.1.0"; irm ... | iex
 #
-# Dependencies: Python 3 + OpenSSL (auto-installed via winget when available)
+# Dependencies: Python 3 (Ed25519 verify via cryptography or OpenSSL 3+; macOS LibreSSL is not supported)
 
 $ErrorActionPreference = "Stop"
 
@@ -124,32 +124,17 @@ function Ensure-Dependencies {
         return
     }
 
-    $needPython = -not (Find-PythonPath)
-    $needOpenSsl = -not (Find-OpenSslPath)
-
-    if (-not $needPython -and -not $needOpenSsl) {
+    if (Find-PythonPath) {
         return
     }
 
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        if ($needPython) {
-            Write-WarnMsg "Python not found. Install from https://python.org or: winget install Python.Python.3.12"
-        }
-        if ($needOpenSsl) {
-            Write-WarnMsg "OpenSSL not found. Install Git for Windows: https://git-scm.com/download/win"
-        }
+        Write-WarnMsg "Python not found. Install from https://python.org or: winget install Python.Python.3.12"
         return
     }
 
-    if ($needPython) {
-        Install-WingetPackage "Python.Python.3.12" "Python 3.12" | Out-Null
-        Refresh-SessionPath
-    }
-
-    if (-not (Find-OpenSslPath)) {
-        Install-WingetPackage "Git.Git" "Git for Windows" | Out-Null
-        Refresh-SessionPath
-    }
+    Install-WingetPackage "Python.Python.3.12" "Python 3.12" | Out-Null
+    Refresh-SessionPath
 }
 
 function Invoke-VerifyBlob(
@@ -157,11 +142,8 @@ function Invoke-VerifyBlob(
     [string]$SigFile,
     [string]$PubkeyFile,
     [string]$VerifyPy,
-    [string]$PythonPath,
-    [string]$OpenSslPath
+    [string]$PythonPath
 ) {
-    $opensslDir = Split-Path $OpenSslPath -Parent
-    $env:Path = "$opensslDir;$env:Path"
     & $PythonPath $VerifyPy --file $File --sig $SigFile --pubkey $PubkeyFile
     if ($LASTEXITCODE -ne 0) {
         Write-Err "signature verification failed"
@@ -195,15 +177,6 @@ python is required for signature verification.
 "@
     }
 
-    $opensslPath = Find-OpenSslPath
-    if (-not $opensslPath) {
-        Write-Err @"
-openssl is required for signature verification.
-  winget install Git.Git
-  or install Git for Windows: https://git-scm.com/download/win
-"@
-    }
-
     $target = Get-PlatformTarget
     Write-Info "detected platform: $target"
     Write-Info "fetching signed versions.json"
@@ -219,7 +192,7 @@ openssl is required for signature verification.
     Set-Content -Path $pubkeyPath -Value $EmbeddedSigningPublicKeyB64 -NoNewline -Encoding ASCII
 
     Write-Info "verifying versions.json signature"
-    Invoke-VerifyBlob $indexPath $indexSigPath $pubkeyPath $verifyPyPath $pythonPath $opensslPath
+    Invoke-VerifyBlob $indexPath $indexSigPath $pubkeyPath $verifyPyPath $pythonPath
 
     $index = Get-Content $indexPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $versionKey = if ($RequestedVersion) {
@@ -264,7 +237,7 @@ openssl is required for signature verification.
     Invoke-SecureDownload $sigUrl $archiveSigPath
 
     Write-Info "verifying release artifact signature"
-    Invoke-VerifyBlob $archivePath $archiveSigPath $pubkeyPath $verifyPyPath $pythonPath $opensslPath
+    Invoke-VerifyBlob $archivePath $archiveSigPath $pubkeyPath $verifyPyPath $pythonPath
 
     $actualSha = Get-FileSha256Hex $archivePath
     if ($actualSha -ne $expectedSha.ToLower()) {

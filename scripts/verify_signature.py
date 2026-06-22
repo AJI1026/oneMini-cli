@@ -6,10 +6,22 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+OPENSSL_CANDIDATES = (
+    "openssl",
+    "/opt/homebrew/opt/openssl@3/bin/openssl",
+    "/opt/homebrew/opt/openssl/bin/openssl",
+    "/opt/homebrew/bin/openssl",
+    "/usr/local/opt/openssl@3/bin/openssl",
+    "/usr/local/opt/openssl/bin/openssl",
+    "/usr/local/bin/openssl",
+)
 
 
 def ed25519_spki_pem(raw_pubkey: bytes) -> str:
@@ -24,14 +36,44 @@ def ed25519_spki_pem(raw_pubkey: bytes) -> str:
     return f"-----BEGIN PUBLIC KEY-----\n{lines}\n-----END PUBLIC KEY-----\n"
 
 
-def verify_signature(data: bytes, sig_b64: str, pubkey_b64: str) -> None:
-    digest = hashlib.sha256(data).digest()
-    signature = base64.standard_b64decode(sig_b64.strip())
-    if len(signature) != 64:
-        raise ValueError(".sig must decode to 64 bytes")
-    pubkey = base64.standard_b64decode(pubkey_b64.strip())
-    pem = ed25519_spki_pem(pubkey)
+def _find_openssl() -> str | None:
+    seen: set[str] = set()
+    for candidate in OPENSSL_CANDIDATES:
+        path = shutil.which(candidate) if os.path.basename(candidate) == candidate else candidate
+        if not path or path in seen or not os.path.isfile(path):
+            continue
+        seen.add(path)
+        try:
+            proc = subprocess.run(
+                [path, "version"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            continue
+        version = (proc.stdout or proc.stderr or "").strip()
+        if "LibreSSL" in version:
+            continue
+        return path
+    return None
 
+
+def _verify_with_cryptography(pubkey: bytes, digest: bytes, signature: bytes) -> None:
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    key = Ed25519PublicKey.from_public_bytes(pubkey)
+    try:
+        key.verify(signature, digest)
+    except InvalidSignature as exc:
+        raise RuntimeError("invalid signature") from exc
+
+
+def _verify_with_openssl(
+    openssl: str, pubkey: bytes, digest: bytes, signature: bytes
+) -> None:
+    pem = ed25519_spki_pem(pubkey)
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         pem_path = tmp_path / "pub.pem"
@@ -43,7 +85,7 @@ def verify_signature(data: bytes, sig_b64: str, pubkey_b64: str) -> None:
 
         proc = subprocess.run(
             [
-                "openssl",
+                openssl,
                 "pkeyutl",
                 "-verify",
                 "-pubin",
@@ -56,10 +98,50 @@ def verify_signature(data: bytes, sig_b64: str, pubkey_b64: str) -> None:
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         if proc.returncode != 0:
             stderr = (proc.stderr or proc.stdout or "").strip()
-            raise RuntimeError(f"signature verification failed: {stderr}")
+            raise RuntimeError(stderr or "invalid signature")
+
+
+def verify_signature(data: bytes, sig_b64: str, pubkey_b64: str) -> None:
+    digest = hashlib.sha256(data).digest()
+    signature = base64.standard_b64decode(sig_b64.strip())
+    if len(signature) != 64:
+        raise ValueError(".sig must decode to 64 bytes")
+    pubkey = base64.standard_b64decode(pubkey_b64.strip())
+    if len(pubkey) != 32:
+        raise ValueError("Ed25519 public key must be 32 bytes")
+
+    errors: list[str] = []
+
+    try:
+        _verify_with_cryptography(pubkey, digest, signature)
+        return
+    except ImportError:
+        errors.append("cryptography 未安装")
+    except RuntimeError as exc:
+        errors.append(f"cryptography: {exc}")
+    except Exception as exc:  # noqa: BLE001 - aggregate verify backends
+        errors.append(f"cryptography: {exc}")
+
+    openssl = _find_openssl()
+    if openssl:
+        try:
+            _verify_with_openssl(openssl, pubkey, digest, signature)
+            return
+        except RuntimeError as exc:
+            errors.append(f"openssl ({openssl}): {exc}")
+        except Exception as exc:  # noqa: BLE001 - aggregate verify backends
+            errors.append(f"openssl ({openssl}): {exc}")
+    else:
+        errors.append(
+            "未找到支持 Ed25519 的 OpenSSL（macOS 自带 LibreSSL 不支持）；"
+            "可执行: brew install openssl，或 pip3 install cryptography"
+        )
+
+    raise RuntimeError("signature verification failed: " + "; ".join(errors))
 
 
 def main() -> int:

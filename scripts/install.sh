@@ -140,6 +140,13 @@ download() {
 
 verify_blob() {
   local file="$1" sig_file="$2" pubkey_file="$3" verify_py="$4"
+  if ! python3 -c "import cryptography" >/dev/null 2>&1; then
+    case "$(uname -s)" in
+      Darwin)
+        export PATH="/opt/homebrew/opt/openssl@3/bin:/opt/homebrew/opt/openssl/bin:/opt/homebrew/bin:/usr/local/opt/openssl@3/bin:/usr/local/opt/openssl/bin:/usr/local/bin:${PATH}"
+        ;;
+    esac
+  fi
   python3 "${verify_py}" --file "${file}" --sig "${sig_file}" --pubkey "${pubkey_file}"
 }
 
@@ -234,7 +241,6 @@ main() {
   need_cmd tar
   need_cmd install
   need_cmd python3
-  need_cmd openssl
 
   local target tmpdir index_json
   target="$(detect_target)"
