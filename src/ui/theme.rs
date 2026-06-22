@@ -367,30 +367,20 @@ pub fn use_retro_table() -> bool {
     !matches!(current_theme(), ThemeId::Modern)
 }
 
-/// 用户输入前缀 `you >`
+/// 用户输入前缀 `you:`
 pub fn user_prompt_prefix() -> String {
     if !colors_enabled() {
-        return "you >".to_string();
+        return "you:".to_string();
     }
-    let p = current_palette();
-    format!(
-        "{} {}",
-        paint(p.user_prompt, "you"),
-        paint_bold(p.user_prompt, ">")
-    )
+    paint(current_palette().user_prompt, "you:")
 }
 
-/// 助手前缀 `onemini >`
+/// 助手前缀 `onemini:`
 pub fn assistant_prompt_prefix() -> String {
     if !colors_enabled() {
-        return "onemini >".to_string();
+        return "onemini:".to_string();
     }
-    let p = current_palette();
-    format!(
-        "{} {}",
-        paint(p.assistant_prompt, "onemini"),
-        paint_bold(p.assistant_prompt, ">")
-    )
+    paint(current_palette().assistant_prompt, "onemini:")
 }
 
 /// Banner 右侧 meta 行着色

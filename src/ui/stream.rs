@@ -116,10 +116,10 @@ impl StreamRenderer {
         io::stdout().flush().ok();
     }
 
-    pub fn on_tool_call(&mut self, name: &str, detail: &str) {
+    pub fn on_tool_call(&mut self, _name: &str, _detail: &str) {
+        // 工具详情在 execute 阶段统一展示，避免流式阶段重复打印「准备调用…」
         self.clear_waiting();
         self.finish_active();
-        println!("{}", ui::tool_call(name, detail));
     }
 
     pub fn finish(&mut self, final_content: Option<&str>) {
@@ -401,6 +401,7 @@ fn clear_reasoning_block(rows: usize) {
 
 /// 流式输出结束后整理终端，避免残留 spinner 与 readline 提示符重叠
 pub fn ensure_terminal_ready() {
+    super::terminal::set_cursor_bar();
     let _ = io::stdout().flush();
 }
 

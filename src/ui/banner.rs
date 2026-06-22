@@ -208,9 +208,11 @@ pub fn play_startup_banner_blocking(info: &BannerInfo<'_>) {
         return;
     }
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.block_on(play_startup_banner_animated(info));
+        tokio::task::block_in_place(|| handle.block_on(play_startup_banner_animated(info)));
     } else {
-        futures::executor::block_on(play_startup_banner_animated(info));
+        tokio::runtime::Runtime::new()
+            .expect("failed to create tokio runtime")
+            .block_on(play_startup_banner_animated(info));
     }
 }
 

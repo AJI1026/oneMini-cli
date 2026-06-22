@@ -15,8 +15,9 @@ impl Rgb {
     }
 }
 
-/// 单主题完整色板
+/// 单主题完整色板（部分字段为 SVG 设计令牌，运行时未必全部引用）
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub struct Palette {
     /// 终端窗口背景近似色 #0a0f0a
     pub bg: Rgb,

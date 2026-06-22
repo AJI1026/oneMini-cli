@@ -24,7 +24,7 @@ pub use plan::render_plan_text;
 pub use repl_helper::{colored_input_prompt, input_prompt_plain, ReplHelper};
 pub use spinner::frame as spinner_frame;
 pub use stream::{ensure_terminal_ready, print_diff_preview, StreamRenderer};
-pub use terminal::visible_width;
+pub use terminal::{set_cursor_bar, visible_width};
 
 pub fn success(msg: &str) -> String {
     format!("{} {}", theme::success_icon(), theme::primary_light(msg))

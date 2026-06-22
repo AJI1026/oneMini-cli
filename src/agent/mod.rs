@@ -509,12 +509,7 @@ impl AgentSession {
                 }
                 self.track_tool_outcome(name, &args, &out);
                 if verbose {
-                    let preview = if name == "list_skills" {
-                        format_list_skills_preview(&out).unwrap_or_else(|| truncate_preview(&out, 200))
-                    } else {
-                        truncate_preview(&out, 200)
-                    };
-                    if !preview.trim().is_empty() {
+                    if let Some(preview) = format_tool_result_preview(name, &out) {
                         print!("{}", ui::tool_output_preview(&preview));
                     }
                 }
@@ -876,8 +871,19 @@ fn summarize_args(name: &str, args: &Value) -> String {
             let cmd = args["command"].as_str().unwrap_or("?");
             truncate_bytes(cmd, 60)
         }
+        "fetch" => args["url"]
+            .as_str()
+            .map(|u| truncate_bytes(u, 72))
+            .unwrap_or_else(|| "?".into()),
         "delegate" => truncate_bytes(args["task"].as_str().unwrap_or("?"), 60),
-        _ => args.to_string(),
+        _ => {
+            // 不向用户倾倒原始 JSON 参数
+            if args.is_object() && args.as_object().is_some_and(|m| !m.is_empty()) {
+                String::new()
+            } else {
+                args.to_string()
+            }
+        }
     }
 }
 

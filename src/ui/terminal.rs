@@ -1,5 +1,6 @@
 //! 终端宽度与原地重绘辅助（处理软换行）
 
+use std::io::Write;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// 去掉 ANSI 转义序列后的可见宽度
@@ -78,6 +79,13 @@ pub fn terminal_width() -> usize {
         .and_then(|s| s.parse().ok())
         .filter(|&w| w > 0)
         .unwrap_or(80)
+}
+
+/// 将终端光标恢复为细竖线（readline / 流式输出后常见粗块光标）
+pub fn set_cursor_bar() {
+    // DECSCUSR 6: steady bar — iTerm2 / Terminal.app / VS Code / Cursor 终端均支持
+    print!("\x1b[6 q");
+    let _ = std::io::stdout().flush();
 }
 
 fn strip_ansi(s: &str) -> String {

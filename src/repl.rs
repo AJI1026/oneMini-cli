@@ -53,6 +53,7 @@ impl Repl {
             if let Some(helper) = self.editor.helper_mut() {
                 helper.colored_prompt = ui::colored_input_prompt();
             }
+            ui::set_cursor_bar();
             match self.editor.readline(prompt) {
                 Ok(line) => {
                     let Some(input) = take_user_input(&line) else {

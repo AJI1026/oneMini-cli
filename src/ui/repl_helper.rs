@@ -3,13 +3,14 @@ use std::borrow::Cow::{self, Borrowed};
 use rustyline::highlight::Highlighter;
 use rustyline::{Completer, Helper, Hinter, Validator};
 
-const INPUT_PROMPT_PLAIN: &str = "You ";
+const INPUT_PROMPT_PLAIN: &str = "you: ";
 
 pub fn input_prompt_plain() -> &'static str {
     INPUT_PROMPT_PLAIN
 }
 
 pub fn colored_input_prompt() -> String {
+    // 可见宽度必须与 INPUT_PROMPT_PLAIN 完全一致，否则 rustyline 左右移动光标会错位
     format!("{} ", super::user_prefix())
 }
 
