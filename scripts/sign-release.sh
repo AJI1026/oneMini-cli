@@ -103,6 +103,7 @@ dist, tag, version, base, index_path = sys.argv[1:6]
 mapping = {
     "onemini-mac-arm64.tar.gz": ("mac-arm64", "archive"),
     "onemini-mac-arm64-bundle.zip": ("mac-arm64", "bundle"),
+    "onemini-mac-x64.tar.gz": ("mac-x64", "archive"),
     "onemini-linux-x64.tar.gz": ("linux-x64", "archive"),
     "onemini-win-x64.zip": ("win-x64", "archive"),
 }

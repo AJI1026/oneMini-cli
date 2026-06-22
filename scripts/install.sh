@@ -47,9 +47,11 @@ detect_target() {
 
   case "${os}" in
     Darwin)
-      # 统一提供 Apple Silicon 构建；Intel Mac 可通过 Rosetta 运行
-      printf 'mac-arm64'
-      return
+      case "${arch}" in
+        arm64 | aarch64) printf 'mac-arm64'; return ;;
+        x86_64 | amd64) printf 'mac-x64'; return ;;
+        *) error "不支持的 macOS CPU 架构: ${arch}" ;;
+      esac
       ;;
     Linux)
       case "${arch}" in

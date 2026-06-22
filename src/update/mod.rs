@@ -152,7 +152,13 @@ fn parse_version(s: &str) -> Result<Version> {
 
 fn detect_platform() -> Result<String> {
     match std::env::consts::OS {
-        "macos" => Ok("mac-arm64".into()),
+        "macos" => match std::env::consts::ARCH {
+            "aarch64" => Ok("mac-arm64".into()),
+            "x86_64" => Ok("mac-x64".into()),
+            other => bail!(
+                "不支持的 macOS CPU 架构: {other}，请从源码编译: cargo install --path ."
+            ),
+        },
         "linux" if std::env::consts::ARCH == "x86_64" => Ok("linux-x64".into()),
         "linux" => bail!(
             "Linux ARM 暂未提供预编译包，请从源码编译: cargo install --path ."

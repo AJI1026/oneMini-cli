@@ -23,6 +23,9 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             pack: mac-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            pack: mac-x64
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             pack: linux-x64
