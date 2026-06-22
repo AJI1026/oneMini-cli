@@ -744,6 +744,71 @@ fn detect_skills_query(input: &str) -> bool {
         || t == "/skills list"
 }
 
+/// 向用户展示的紧凑工具结果（隐藏原始 JSON 等大段输出）
+fn format_tool_result_preview(name: &str, out: &str) -> Option<String> {
+    match name {
+        "list_skills" => format_list_skills_preview(out),
+        "fetch" => format_fetch_preview(out),
+        "bash" => format_bash_preview(out),
+        "read" | "grep" | "glob" | "delegate" => None,
+        "write" | "edit" => {
+            let t = out.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(truncate_preview(t, 120))
+            }
+        }
+        _ => {
+            let t = out.trim();
+            if t.is_empty() {
+                None
+            } else if t.starts_with('{') || t.starts_with('[') {
+                None
+            } else {
+                Some(truncate_preview(t, 120))
+            }
+        }
+    }
+}
+
+fn format_fetch_preview(out: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(out).ok()?;
+    let status = v["status"].as_u64()?;
+    let body = v["body"].as_str().unwrap_or("").trim();
+    let snippet = body
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| truncate_preview(l.trim(), 80));
+    match snippet {
+        Some(s) if !s.is_empty() => Some(format!("HTTP {status} · {s}")),
+        _ => Some(format!("HTTP {status}")),
+    }
+}
+
+fn format_bash_preview(out: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(out).ok()?;
+    let code = v["exit_code"].as_i64().unwrap_or(-1);
+    if v["timed_out"].as_bool() == Some(true) {
+        return v["failure_reason"]
+            .as_str()
+            .map(|r| format!("超时 · {r}"));
+    }
+    if v["success"].as_bool() == Some(false) {
+        let reason = v["failure_reason"]
+            .as_str()
+            .or_else(|| v["stderr_preview"].as_str())
+            .unwrap_or("命令失败");
+        return Some(format!("exit {code} · {reason}"));
+    }
+    let stdout = v["stdout_preview"].as_str().unwrap_or("").trim();
+    if stdout.is_empty() {
+        Some(format!("exit {code}"))
+    } else {
+        Some(format!("exit {code} · {}", truncate_preview(stdout, 80)))
+    }
+}
+
 fn format_list_skills_preview(json: &str) -> Option<String> {
     let v: Value = serde_json::from_str(json).ok()?;
     let skills = v.get("skills")?.as_array()?;
