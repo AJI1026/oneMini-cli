@@ -244,10 +244,11 @@ mod tests {
         let _g = theme::theme_test_guard();
         theme::set_theme(theme::ThemeId::Modern);
         let out = render_banner(&BannerInfo::default());
+        let out_stripped = crate::ui::strip_ansi(&out);
         assert!(out.contains("Welcome to oneMini"));
         assert!(out.contains("OneMini CLI"));
-        assert!(out.contains("██████╗"));
-        assert!(out.contains("╚═════╝"));
+        assert!(out_stripped.contains("██████╗"));
+        assert!(out_stripped.contains("╚═════╝"));
     }
 
     #[test]
@@ -286,7 +287,8 @@ mod tests {
         theme::set_theme(theme::ThemeId::Modern);
         let out = render_banner(&BannerInfo::default());
         let lines: Vec<_> = out.lines().collect();
-        let logo_idx = lines.iter().position(|l| l.contains("██████╗")).unwrap();
+        let stripped_lines: Vec<_> = lines.iter().map(|l| crate::ui::strip_ansi(l)).collect();
+        let logo_idx = stripped_lines.iter().position(|l| l.contains("██████╗")).unwrap();
         let meta_idx = lines.iter().position(|l| l.contains("OneMini CLI")).unwrap();
         assert!(meta_idx > logo_idx, "描述文字应在 Logo 下方");
     }

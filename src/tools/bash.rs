@@ -117,7 +117,9 @@ impl Tool for BashTool {
 }
 
 fn preview(text: &str) -> String {
-    truncate_output(text, PREVIEW_CHARS)
+    // 先剥离 ANSI 转义序列防止终端注入攻击，再截断
+    let clean = crate::ui::strip_ansi(text);
+    truncate_output(&clean, PREVIEW_CHARS)
 }
 
 fn timeout_failure_message(command: &str) -> String {

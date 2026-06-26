@@ -10,7 +10,14 @@ use security::{download_and_verify, secure_http_client, VERSIONS_INDEX_URL, VERS
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// 二进制文件名（含平台相关扩展名）
+#[cfg(windows)]
+const BINARY: &str = "onemini.exe";
+#[cfg(not(windows))]
 const BINARY: &str = "onemini";
+
+/// 归档文件基本名（不含平台后缀和扩展名）
+const BIN_BASE: &str = "onemini";
 
 pub struct UpdateOptions {
     pub check_only: bool,
@@ -90,7 +97,9 @@ pub async fn run(opts: UpdateOptions) -> Result<()> {
         .to_path_buf();
 
     let tmp = tempfile_dir()?;
-    let archive = tmp.join(format!("{BINARY}-{platform}.tar.gz"));
+    let is_windows = platform == "win-x64";
+    let ext = if is_windows { ".zip" } else { ".tar.gz" };
+    let archive = tmp.join(format!("{BIN_BASE}-{platform}{ext}"));
     let extract_dir = tmp.join("extract");
     std::fs::create_dir_all(&extract_dir)?;
 
@@ -106,7 +115,11 @@ pub async fn run(opts: UpdateOptions) -> Result<()> {
     std::fs::write(&archive, &archive_bytes)
         .with_context(|| format!("写入失败: {}", archive.display()))?;
 
-    extract_tar(&archive, &extract_dir)?;
+    if is_windows {
+        extract_zip(&archive, &extract_dir)?;
+    } else {
+        extract_tar(&archive, &extract_dir)?;
+    }
     let new_bin = extract_dir.join(BINARY);
     if !new_bin.is_file() {
         bail!("压缩包中未找到 {BINARY} 二进制");
@@ -163,7 +176,9 @@ fn detect_platform() -> Result<String> {
         "linux" => bail!(
             "Linux ARM 暂未提供预编译包，请从源码编译: cargo install --path ."
         ),
-        other => bail!("不支持的操作系统: {other}（仅 macOS / Linux 支持 onemini update）"),
+        "windows" if std::env::consts::ARCH == "x86_64" => Ok("win-x64".into()),
+        "windows" => bail!("Windows ARM 暂未提供预编译包"),
+        other => bail!("不支持的操作系统: {other}"),
     }
 }
 
@@ -177,6 +192,25 @@ fn extract_tar(archive: &Path, dest: &Path) -> Result<()> {
         ])
         .status()
         .context("执行 tar 失败（请确认系统已安装 tar）")?;
+    if !status.success() {
+        bail!("解压失败，退出码: {:?}", status.code());
+    }
+    Ok(())
+}
+
+fn extract_zip(archive: &Path, dest: &Path) -> Result<()> {
+    let status = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+                archive.display(),
+                dest.display()
+            ),
+        ])
+        .status()
+        .context("执行 Expand-Archive 失败（请确认系统已安装 PowerShell）")?;
     if !status.success() {
         bail!("解压失败，退出码: {:?}", status.code());
     }
@@ -206,15 +240,35 @@ chmod +x "{target}"
             .arg(&script_path)
             .spawn()
             .context("启动更新脚本失败")?;
-        return Ok(());
+        Ok(())
     }
-    #[cfg(not(unix))]
+
+    // Windows: 当前 .exe 正在运行无法直接 rename
+    // 用延迟批处理脚本等待进程退出后替换
+    #[cfg(windows)]
+    {
+        let script = format!(
+            r#"@echo off
+timeout /t 1 /nobreak > nul
+move /Y "{staged}" "{target}"
+"#,
+            staged = staged.display(),
+            target = target.display()
+        );
+        let script_path = staged.with_extension("bat");
+        std::fs::write(&script_path, script)?;
+        Command::new("cmd")
+            .arg("/C")
+            .arg(&script_path)
+            .spawn()
+            .context("启动更新脚本失败")?;
+        Ok(())
+    }
+
+    #[cfg(not(any(unix, windows)))]
     {
         std::fs::rename(staged, target).with_context(|| {
-            format!(
-                "无法替换 {}（Windows 请手动下载 Release 覆盖）",
-                target.display()
-            )
+            format!("无法替换 {}", target.display())
         })?;
         Ok(())
     }

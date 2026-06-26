@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use crate::hooks::HookConfig;
 use crate::permissions::PermissionRulesFile;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ManagedSettings {
     pub disable_bypass_permissions: bool,
     pub disable_auto_mode: bool,
@@ -16,6 +16,22 @@ pub struct ManagedSettings {
     pub hooks: HookConfig,
     pub hook_fail_open: bool,
     pub source: Option<PathBuf>,
+}
+
+impl Default for ManagedSettings {
+    fn default() -> Self {
+        Self {
+            // 安全默认：bypass 模式默认禁止（必须在 managed.toml 中显式启用）
+            disable_bypass_permissions: true,
+            disable_auto_mode: false,
+            allow_managed_rules_only: false,
+            allow_managed_hooks_only: false,
+            rules: PermissionRulesFile::default(),
+            hooks: HookConfig::default(),
+            hook_fail_open: false,
+            source: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize, Default)]

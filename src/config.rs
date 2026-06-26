@@ -257,6 +257,10 @@ impl Config {
                 Err(e) => {
                     if let Ok(key) = std::env::var("ONEMINI_API_KEY") {
                         if !key.is_empty() {
+                            eprintln!(
+                                "{}",
+                                crate::ui::warn("⚠️ 使用 ONEMINI_API_KEY 环境变量作为回退。环境变量可能被其他进程读取（/proc/self/environ），建议使用 keychain 存储。")
+                            );
                             self.api_key = Some(key);
                             return Ok(());
                         }

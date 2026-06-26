@@ -51,6 +51,14 @@ pub fn sanitize_stream_delta(delta: &str) -> String {
     out
 }
 
+/// 剥离 CSI (Control Sequence Introducer) ANSI 转义序列
+pub fn strip_ansi(text: &str) -> String {
+    static RE_ANSI: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][0-9;]*[a-zA-Z]|\x1b[\\\]_^]|\x1b[PX^_]").unwrap()
+    });
+    RE_ANSI.replace_all(text, "").to_string()
+}
+
 /// 最终输出清洗（finish / 非流式 / JSON 回复）
 pub fn sanitize_final(input: &str) -> String {
     let mut text = input.to_string();

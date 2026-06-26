@@ -746,13 +746,15 @@ fn detect_skills_query(input: &str) -> bool {
 
 /// 向用户展示的紧凑工具结果（隐藏原始 JSON 等大段输出）
 fn format_tool_result_preview(name: &str, out: &str) -> Option<String> {
+    // 先剥离 ANSI 转义序列防止终端注入
+    let clean = crate::ui::strip_ansi(out);
     match name {
-        "list_skills" => format_list_skills_preview(out),
-        "fetch" => format_fetch_preview(out),
-        "bash" => format_bash_preview(out),
+        "list_skills" => format_list_skills_preview(&clean),
+        "fetch" => format_fetch_preview(&clean),
+        "bash" => format_bash_preview(&clean),
         "read" | "grep" | "glob" | "delegate" => None,
         "write" | "edit" => {
-            let t = out.trim();
+            let t = clean.trim();
             if t.is_empty() {
                 None
             } else {
@@ -760,7 +762,7 @@ fn format_tool_result_preview(name: &str, out: &str) -> Option<String> {
             }
         }
         _ => {
-            let t = out.trim();
+            let t = clean.trim();
             if t.is_empty() {
                 None
             } else if t.starts_with('{') || t.starts_with('[') {

@@ -112,6 +112,8 @@ impl HookRunner {
     }
 
     fn execute_hook(&self, command: &str, args: &Value) -> Result<HookOutcome> {
+        // 验证 hook 命令路径：仅限于 ~/.onemini/hooks/ 目录下的脚本
+        validate_hook_command(command)?;
         let args_json = args.to_string();
         match run_command_with_timeout(command, &args_json, HOOK_TIMEOUT_SECS) {
             Ok(output) => parse_hook_output(command, &output, self.fail_open),
@@ -124,6 +126,47 @@ impl HookRunner {
             }
         }
     }
+}
+
+/// 验证 hook 命令路径安全性
+fn validate_hook_command(command: &str) -> Result<()> {
+    // 允许系统命令（仅白名单）
+    const ALLOWED_SYSTEM_COMMANDS: &[&str] = &[
+        "grep", "awk", "sed", "cat", "echo", "printf", "test", "[",
+        "python3", "python", "node", "deno", "bash", "sh", "zsh",
+        "jq", "yq", "git",
+    ];
+
+    let trimmed = command.trim();
+    // 尝试解析命令的第一部分（路径或命令名）
+    let first_part = trimmed.split_whitespace().next().unwrap_or(trimmed);
+
+    // 如果是相对/绝对路径，只能执行 hooks 目录下的脚本
+    if first_part.contains('/') || first_part.contains('\\') {
+        let config_dir = crate::config::Config::config_dir()?;
+        let hooks_dir = config_dir.join("hooks");
+        let canon_hooks = hooks_dir.canonicalize().with_context(|| {
+            format!("hooks 目录不存在: {}", hooks_dir.display())
+        })?;
+        if let Ok(cmd_path) = std::path::PathBuf::from(first_part).canonicalize() {
+            if cmd_path.starts_with(&canon_hooks) {
+                return Ok(());
+            }
+        }
+        anyhow::bail!(
+            "[安全拦截] hook 命令路径不在 ~/.onemini/hooks/ 目录下: {trimmed}"
+        );
+    }
+
+    // 纯命令名——检查白名单
+    let cmd_name = first_part;
+    if !ALLOWED_SYSTEM_COMMANDS.contains(&cmd_name) {
+        anyhow::bail!(
+            "[安全拦截] hook 命令不在白名单中: {cmd_name}（允许: {}）",
+            ALLOWED_SYSTEM_COMMANDS.join(", ")
+        );
+    }
+    Ok(())
 }
 
 fn run_command_with_timeout(

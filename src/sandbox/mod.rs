@@ -1,5 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
@@ -81,6 +82,8 @@ impl SandboxRunner {
     pub async fn exec(&self, command: &str, workdir: &Path) -> Result<tokio::process::Child> {
         self.ensure_available()?;
         if !self.config.enabled {
+            // 沙箱关闭时检查危险命令模式，防止 prompt injection 导致的 RCE
+            check_dangerous_command(command)?;
             return Command::new("sh")
                 .arg("-c")
                 .arg(command)
@@ -103,7 +106,7 @@ impl SandboxRunner {
     async fn exec_bwrap(&self, command: &str, workdir: &Path) -> Result<tokio::process::Child> {
         let work = workdir
             .canonicalize()
-            .unwrap_or_else(|_| workdir.to_path_buf());
+            .with_context(|| format!("无法解析工作目录: {}", workdir.display()))?;
         let mut args = vec![
             "--die-with-parent".to_string(),
             "--unshare-all".to_string(),
@@ -116,6 +119,7 @@ impl SandboxRunner {
             work.display().to_string(),
             "--chdir".to_string(),
             work.display().to_string(),
+            // bwrap --dev 创建新的最小 devtmpfs（非绑定主机 /dev），安全且兼容
             "--dev".to_string(),
             "/dev".to_string(),
             "--proc".to_string(),
@@ -156,7 +160,7 @@ impl SandboxRunner {
     async fn exec_sandbox_exec(&self, command: &str, workdir: &Path) -> Result<tokio::process::Child> {
         let work = workdir
             .canonicalize()
-            .unwrap_or_else(|_| workdir.to_path_buf());
+            .with_context(|| format!("无法解析工作目录: {}", workdir.display()))?;
         let mut profile = format!(
             "(version 1)\n(deny default)\n(allow process*)\n(allow sysctl-read)\n(allow file-read*)\n(allow file-write* (subpath \"{}\"))\n(allow file-write* (subpath \"/tmp\"))\n(allow file-write* (subpath \"/var/folders\"))\n",
             work.display()
@@ -164,11 +168,16 @@ impl SandboxRunner {
         if self.config.allow_network {
             profile.push_str("(allow network-outbound)\n");
         }
-        let profile_path = std::env::temp_dir().join(format!(
-            "onemini-sandbox-{}.sb",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::write(&profile_path, profile)?;
+        // 使用 tempfile 创建安全临时文件（权限 0o600），避免 /tmp 下的 TOCTOU 竞争
+        let mut tmp = tempfile::Builder::new()
+            .prefix("onemini-sandbox-")
+            .suffix(".sb")
+            .tempfile()
+            .context("创建 sandbox profile 临时文件失败")?;
+        tmp.write_all(profile.as_bytes())
+            .context("写入 sandbox profile 失败")?;
+        let profile_path = tmp.path().to_path_buf();
+
         let child = Command::new("sandbox-exec")
             .arg("-f")
             .arg(&profile_path)
@@ -180,9 +189,41 @@ impl SandboxRunner {
             .stderr(Stdio::piped())
             .spawn()
             .context("启动 sandbox-exec 失败")?;
-        let _ = std::fs::remove_file(profile_path);
+
+        // tempfile 超出作用域后自动删除
+        drop(tmp);
         Ok(child)
     }
+}
+
+/// 高危命令模式——即使沙箱关闭也必须拦截
+const DANGEROUS_COMMAND_PATTERNS: &[&str] = &[
+    "rm -rf /",
+    "rm -rf /*",
+    "mkfs.",
+    "dd if=/dev/zero of=",
+    ":(){ :|:& };:",
+    "> /dev/sda",
+    "| sh",
+    "| bash",
+    "| zsh",
+    "curl ",
+    "wget ",
+    "chmod -R 000",
+    "chown -R ",
+];
+
+fn check_dangerous_command(command: &str) -> Result<()> {
+    let lower = command.to_lowercase();
+    for pattern in DANGEROUS_COMMAND_PATTERNS {
+        if lower.contains(pattern) {
+            bail!(
+                "[安全拦截] 沙箱关闭状态下禁止执行危险命令（匹配模式: {}）",
+                pattern
+            );
+        }
+    }
+    Ok(())
 }
 
 pub fn probe_backend() -> SandboxBackend {
@@ -217,5 +258,13 @@ mod tests {
     #[test]
     fn probe_returns_variant() {
         let _ = probe_backend();
+    }
+
+    #[test]
+    fn detects_dangerous_commands() {
+        assert!(check_dangerous_command("rm -rf /").is_err());
+        assert!(check_dangerous_command("ls -la").is_ok());
+        assert!(check_dangerous_command("curl http://evil.sh").is_err());
+        assert!(check_dangerous_command("echo hello").is_ok());
     }
 }

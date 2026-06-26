@@ -3,15 +3,20 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use anyhow::{Context, Result};
-use sha2::{Digest, Sha256};
+use pbkdf2::pbkdf2_hmac;
+use sha2::Sha256;
 use std::fs;
 use std::path::Path;
 
 const NONCE_LEN: usize = 12;
 const KEYCHAIN_PLACEHOLDER: &str = "keychain:onemini";
+/// PBKDF2 迭代次数（OWASP 2023 推荐值：600,000 次 SHA-256）
+const PBKDF2_ROUNDS: u32 = 600_000;
+const SALT_LEN: usize = 16;
+const KEY_LEN: usize = 32;
 
 pub fn encrypt_bytes(plaintext: &[u8]) -> Result<Vec<u8>> {
-    let key = derive_key()?;
+    let (key, salt) = derive_key()?;
     let cipher = Aes256Gcm::new_from_slice(&key).context("初始化加密器失败")?;
     let mut nonce_bytes = [0u8; NONCE_LEN];
     getrandom::getrandom(&mut nonce_bytes).map_err(|e| anyhow::anyhow!("生成 nonce 失败: {e}"))?;
@@ -19,26 +24,37 @@ pub fn encrypt_bytes(plaintext: &[u8]) -> Result<Vec<u8>> {
     let ciphertext = cipher
         .encrypt(nonce, plaintext)
         .map_err(|e| anyhow::anyhow!("加密失败: {e}"))?;
-    let mut out = Vec::with_capacity(NONCE_LEN + ciphertext.len());
+    // 格式: salt(16) + nonce(12) + ciphertext
+    let mut out = Vec::with_capacity(SALT_LEN + NONCE_LEN + ciphertext.len());
+    out.extend_from_slice(&salt);
     out.extend_from_slice(&nonce_bytes);
     out.extend_from_slice(&ciphertext);
     Ok(out)
 }
 
 pub fn decrypt_bytes(data: &[u8]) -> Result<Vec<u8>> {
-    if data.len() < NONCE_LEN {
+    let min_len = SALT_LEN + NONCE_LEN;
+    if data.len() < min_len {
         anyhow::bail!("加密数据过短");
     }
-    let key = derive_key()?;
+    let (salt, rest) = data.split_at(SALT_LEN);
+    let (nonce_bytes, ciphertext) = rest.split_at(NONCE_LEN);
+    let key = derive_key_with_salt(salt)?;
     let cipher = Aes256Gcm::new_from_slice(&key).context("初始化解密器失败")?;
-    let (nonce_bytes, ciphertext) = data.split_at(NONCE_LEN);
     let nonce = Nonce::from_slice(nonce_bytes);
     cipher
         .decrypt(nonce, ciphertext)
         .map_err(|e| anyhow::anyhow!("解密失败（密钥或数据损坏）: {e}"))
 }
 
-fn derive_key() -> Result<[u8; 32]> {
+fn derive_key() -> Result<([u8; KEY_LEN], [u8; SALT_LEN])> {
+    let mut salt = [0u8; SALT_LEN];
+    getrandom::getrandom(&mut salt).map_err(|e| anyhow::anyhow!("生成盐失败: {e}"))?;
+    let key = derive_key_with_salt(&salt)?;
+    Ok((key, salt))
+}
+
+fn derive_key_with_salt(salt: &[u8]) -> Result<[u8; KEY_LEN]> {
     let config_dir = crate::config::Config::config_dir()?;
     let machine_id_path = config_dir.join(".machine_id");
     let machine_id = if machine_id_path.exists() {
@@ -53,14 +69,19 @@ fn derive_key() -> Result<[u8; 32]> {
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".into());
     let username = whoami::username();
-    let mut hasher = Sha256::new();
-    hasher.update(hostname.as_bytes());
-    hasher.update(username.as_bytes());
-    hasher.update(config_dir.display().to_string().as_bytes());
-    hasher.update(machine_id.as_bytes());
-    let digest = hasher.finalize();
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&digest);
+
+    // 构造密码材料
+    let mut password = Vec::new();
+    password.extend_from_slice(hostname.as_bytes());
+    password.extend_from_slice(username.as_bytes());
+    password.extend_from_slice(config_dir.display().to_string().as_bytes());
+    password.extend_from_slice(machine_id.as_bytes());
+
+    // 使用 PBKDF2-HMAC-SHA256（pbkdf2 crate），替代原始 SHA-256
+    let mut key = [0u8; KEY_LEN];
+    pbkdf2_hmac::<Sha256>(&password, salt, PBKDF2_ROUNDS, &mut key);
+    // 安全清零密码缓冲区
+    password.fill(0);
     Ok(key)
 }
 

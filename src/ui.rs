@@ -17,7 +17,7 @@ use colored::Colorize;
 pub use banner::{play_startup_banner, play_startup_banner_blocking, BannerInfo};
 pub use markdown::render_markdown;
 pub use sanitize::{
-    looks_like_reasoning_delta, sanitize_final, sanitize_stream_delta,
+    looks_like_reasoning_delta, sanitize_final, sanitize_stream_delta, strip_ansi,
 };
 pub use table::render_table;
 pub use plan::render_plan_text;

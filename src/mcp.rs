@@ -30,6 +30,8 @@ struct McpConnection {
 
 impl McpConnection {
     async fn spawn(cfg: &McpServerConfig) -> Result<Self> {
+        // 验证 MCP 命令路径安全
+        validate_mcp_command(&cfg.command, &cfg.args)?;
         let mut cmd = Command::new(&cfg.command);
         cmd.args(&cfg.args)
             .envs(&cfg.env)
@@ -182,6 +184,49 @@ impl Tool for McpTool {
         let mut conn = self.connection.lock().await;
         conn.call_tool(&self.info.name, args).await
     }
+}
+
+/// 验证 MCP 命令路径安全性
+fn validate_mcp_command(command: &str, args: &[String]) -> Result<()> {
+    const ALLOWED_MCP_COMMANDS: &[&str] = &[
+        "node", "deno", "bun", "python3", "python", "uvx", "npx",
+        "rust-analyzer", "typescript-language-server",
+    ];
+
+    let trimmed = command.trim();
+
+    // 检查是否为禁止的危险命令
+    let cmd_lower = trimmed.to_lowercase();
+    if cmd_lower.contains("rm ") || cmd_lower.contains("mkfs") || cmd_lower.contains("dd ") {
+        anyhow::bail!("[安全拦截] MCP 命令不允许为危险系统命令: {trimmed}");
+    }
+
+    // 如果是相对/绝对路径，验证可执行文件存在
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        let path = std::path::PathBuf::from(trimmed);
+        if !path.is_file() {
+            anyhow::bail!("[安全拦截] MCP 命令路径不存在: {trimmed}");
+        }
+        return Ok(());
+    }
+
+    // 纯命令名——检查白名单
+    if !ALLOWED_MCP_COMMANDS.contains(&trimmed) {
+        anyhow::bail!(
+            "[安全拦截] MCP 命令不在白名单中: {trimmed}（允许: {}）",
+            ALLOWED_MCP_COMMANDS.join(", ")
+        );
+    }
+
+    // 检查参数中否包含危险操作
+    for arg in args {
+        let arg_lower = arg.to_lowercase();
+        if arg_lower == "-rf" || arg_lower.contains("rm -rf") {
+            anyhow::bail!("[安全拦截] MCP 参数包含危险操作: {arg}");
+        }
+    }
+
+    Ok(())
 }
 
 pub struct McpRegistry {
