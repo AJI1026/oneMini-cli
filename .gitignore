@@ -27,3 +27,6 @@ __pycache__/
 *.tmp
 *.temp
 *.swp
+
+# AI 代码上下文索引（本地生成，不提交）
+.codesight/
