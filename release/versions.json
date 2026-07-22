@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "latest": "0.1.1",
+  "latest": "1.1.2",
   "releases": {
     "0.1.0": {
       "tag": "v0.1.0",
@@ -113,6 +113,33 @@
           "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.1/onemini-win-x64.zip",
           "sha256": "38a51466335e10135269453b4d25b6533734da5b2d57df81411da520cba2cafc",
           "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v0.1.1/onemini-win-x64.zip.sig"
+        }
+      }
+    },
+    "1.1.2": {
+      "tag": "v1.1.2",
+      "deprecated": false,
+      "deprecation_reason": null,
+      "assets": {
+        "mac-arm64": {
+          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v1.1.2/onemini-mac-arm64.tar.gz",
+          "sha256": "6921e8bb10c314843c5d1679b5b61b99efdcde4d661441fd4886587ccc7ee6e1",
+          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v1.1.2/onemini-mac-arm64.tar.gz.sig"
+        },
+        "mac-x64": {
+          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v1.1.2/onemini-mac-x64.tar.gz",
+          "sha256": "2e459e8afee8501ee06ed1fa6aa3c56a214739d2f374a6bc19e4143f0088b8bc",
+          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v1.1.2/onemini-mac-x64.tar.gz.sig"
+        },
+        "linux-x64": {
+          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v1.1.2/onemini-linux-x64.tar.gz",
+          "sha256": "831de29c7d98d718a9d68e68af564812550c6f61edd890162c320c1359f3a67f",
+          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v1.1.2/onemini-linux-x64.tar.gz.sig"
+        },
+        "win-x64": {
+          "url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v1.1.2/onemini-win-x64.zip",
+          "sha256": "a43fbebecae129fac56a4a3dc47fbe101d078e72d496ba3be440f7d55d1f51e4",
+          "sig_url": "https://github.com/AJI1026/OneMini-CLI/releases/download/v1.1.2/onemini-win-x64.zip.sig"
         }
       }
     }
