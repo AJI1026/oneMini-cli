@@ -111,7 +111,7 @@ impl SkillRegistry {
                 skill.name, skill.description
             ));
         }
-        out.push_str("\n示例：直接描述任务即可；或 `/commit-message` · `/debug 登录 500`\n");
+        out.push_str("\n示例：直接描述任务即可；或 `/storyboard` · `/prompt-polish 润色出图提示词`\n");
         out
     }
 
@@ -404,8 +404,8 @@ mod tests {
     #[test]
     fn builtin_skills_loaded() {
         let reg = SkillRegistry::discover(Path::new(".")).unwrap();
-        assert!(reg.get("commit-message").is_some());
-        assert!(reg.get("debug").is_some());
+        assert!(reg.get("storyboard").is_some());
+        assert!(reg.get("blender-modeling").is_some());
     }
 
     #[test]

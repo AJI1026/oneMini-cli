@@ -6,33 +6,33 @@ pub struct BuiltinSkillDef {
 
 pub const BUILTIN_SKILLS: &[BuiltinSkillDef] = &[
     BuiltinSkillDef {
-        name: "commit-message",
-        description: "根据 git diff 生成规范的 commit message",
-        body: include_str!("../../skills/commit-message/SKILL.md"),
+        name: "storyboard",
+        description: "将创意拆成可拍可生成的分镜脚本",
+        body: include_str!("../../skills/storyboard/SKILL.md"),
     },
     BuiltinSkillDef {
-        name: "code-review",
-        description: "结构化代码审查与改进建议",
-        body: include_str!("../../skills/code-review/SKILL.md"),
+        name: "character-brief",
+        description: "整理角色外形、性格与服装设定卡",
+        body: include_str!("../../skills/character-brief/SKILL.md"),
     },
     BuiltinSkillDef {
-        name: "debug",
-        description: "系统化调试：复现 → 定位 → 修复 → 验证",
-        body: include_str!("../../skills/debug/SKILL.md"),
+        name: "prompt-polish",
+        description: "扩写结构化图/视频提示词",
+        body: include_str!("../../skills/prompt-polish/SKILL.md"),
     },
     BuiltinSkillDef {
-        name: "refactor",
-        description: "安全小步重构，保持行为不变",
-        body: include_str!("../../skills/refactor/SKILL.md"),
+        name: "visual-style",
+        description: "统一色调、镜头语言与材质关键词",
+        body: include_str!("../../skills/visual-style/SKILL.md"),
     },
     BuiltinSkillDef {
-        name: "readme",
-        description: "为项目或模块编写 README 文档",
-        body: include_str!("../../skills/readme/SKILL.md"),
+        name: "shot-list",
+        description: "编排集数与镜头表字段",
+        body: include_str!("../../skills/shot-list/SKILL.md"),
     },
     BuiltinSkillDef {
-        name: "explore-codebase",
-        description: "快速理解陌生代码库结构与入口",
-        body: include_str!("../../skills/explore-codebase/SKILL.md"),
+        name: "blender-modeling",
+        description: "引导通过 CLI 本机 MCP 连接 Blender（Web 不开放）",
+        body: include_str!("../../skills/blender-modeling/SKILL.md"),
     },
 ];

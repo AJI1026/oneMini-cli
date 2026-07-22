@@ -4,16 +4,16 @@
 
 ## 内置技能
 
-### 编程向（编译进二进制）
+### 创作向（编译进二进制；同步到 Web Skills 页）
 
 | 技能 | 说明 |
 |------|------|
-| `commit-message` | 根据 git diff 生成 commit message |
-| `code-review` | 结构化代码审查 |
-| `debug` | 复现 → 定位 → 修复 → 验证 |
-| `refactor` | 安全小步重构 |
-| `readme` | 编写 README |
-| `explore-codebase` | 快速理解陌生代码库 |
+| `storyboard` | 分镜脚本 |
+| `character-brief` | 角色设定卡 |
+| `prompt-polish` | 提示词润色 |
+| `visual-style` | 视觉风格指南 |
+| `shot-list` | 镜头表编排 |
+| `blender-modeling` | Blender 建模（**仅 CLI 本机 MCP**；Web 不开放） |
 
 ### 文档四件套（随包 `skills/` 目录，Apache-2.0）
 

@@ -9,67 +9,75 @@ pub struct SkillTriggerRule {
 
 /// 技能 id → 触发词（中英文）；越具体的关键词权重越高（按字符长度计分）
 pub const AUTO_TRIGGER_RULES: &[SkillTriggerRule] = &[
-    // 内置编程技能
+    // 内置创作技能
     SkillTriggerRule {
-        id: "commit-message",
+        id: "storyboard",
         triggers: &[
-            "commit message",
-            "commit msg",
-            "提交信息",
-            "提交说明",
-            "写 commit",
-            "git commit",
-            "commit",
+            "分镜",
+            "分镜脚本",
+            "写分镜",
+            "镜头拆解",
+            "storyboard",
+            "镜号",
         ],
     },
     SkillTriggerRule {
-        id: "code-review",
+        id: "character-brief",
         triggers: &[
-            "code review",
-            "代码审查",
-            "审查代码",
-            "review pr",
-            "review 代码",
-            "pr 审查",
-            "看看这段代码",
+            "角色设定",
+            "角色卡",
+            "人物小传",
+            "人设",
+            "character brief",
+            "character sheet",
         ],
     },
     SkillTriggerRule {
-        id: "debug",
+        id: "prompt-polish",
         triggers: &[
-            "调试",
-            "debug",
-            "报错",
-            "异常",
-            "不工作",
-            "失败了",
-            "测试失败",
-            "bug",
-            "fix bug",
-            "根因",
-            "stack trace",
-            "堆栈",
+            "润色提示词",
+            "提示词润色",
+            "扩写提示词",
+            "优化 prompt",
+            "prompt polish",
+            "出图提示词",
+            "出片提示词",
         ],
     },
     SkillTriggerRule {
-        id: "refactor",
-        triggers: &["重构", "refactor", "整理代码", "去重复", "提取函数"],
-    },
-    SkillTriggerRule {
-        id: "readme",
-        triggers: &["readme", "README", "项目文档", "写文档", "安装说明", "使用说明"],
-    },
-    SkillTriggerRule {
-        id: "explore-codebase",
+        id: "visual-style",
         triggers: &[
-            "代码库",
-            "项目结构",
-            "架构",
-            "入口在哪",
-            "怎么跑起来",
-            "熟悉项目",
-            "explore codebase",
-            "codebase",
+            "视觉风格",
+            "风格指南",
+            "视觉规范",
+            "定个风格",
+            "色调统一",
+            "visual style",
+            "style guide",
+        ],
+    },
+    SkillTriggerRule {
+        id: "shot-list",
+        triggers: &[
+            "镜头表",
+            "分集编排",
+            "shot list",
+            "shotlist",
+            "时间线镜头",
+            "编排镜头",
+        ],
+    },
+    SkillTriggerRule {
+        id: "blender-modeling",
+        triggers: &[
+            "blender",
+            "Blender",
+            "建模",
+            "打开 blender",
+            "用 blender",
+            "blender 建模",
+            "导出 gltf",
+            "导出 glb",
         ],
     },
     // Anthropic 设计类
@@ -219,15 +227,15 @@ mod tests {
     }
 
     #[test]
-    fn auto_match_debug() {
-        let reg = test_registry(&["debug"]);
-        let skill = reg.auto_match("登录接口一直报 500，帮我调试").unwrap();
-        assert_eq!(skill.name, "debug");
+    fn auto_match_storyboard() {
+        let reg = test_registry(&["storyboard"]);
+        let skill = reg.auto_match("帮我写一段短片分镜脚本").unwrap();
+        assert_eq!(skill.name, "storyboard");
     }
 
     #[test]
     fn auto_match_none_for_generic() {
-        let reg = test_registry(&["debug", "frontend-design"]);
+        let reg = test_registry(&["storyboard", "frontend-design"]);
         assert!(reg.auto_match("你好").is_none());
     }
 }
